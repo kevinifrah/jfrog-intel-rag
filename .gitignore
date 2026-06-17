@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.env
+raw_snapshots/
+*.sqlite
+.DS_Store
+*-key.json
+*service-account*.json
