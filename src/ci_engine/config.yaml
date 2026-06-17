@@ -6,35 +6,47 @@ project:
 
 # --- LLMs: most capable model the task needs; cost reduced only where it doesn't cost quality ---
 models:
-  synthesis:   { name: "claude-opus-4-8",        temperature: 0.2, thinking: high }   # accuracy-critical compile + report
-  report:      { name: "claude-opus-4-8",        temperature: 0.3, thinking: high }
-  chat_answer: { name: "claude-sonnet-4-6",      temperature: 0.2, thinking: medium } # fast, grounded Q&A
-  relevance:   { name: "claude-haiku-4-5",       temperature: 0.0, thinking: none }   # cheap classification only
-  # NOTE: confirm current model IDs against https://docs.claude.com before the demo.
+  synthesis:
+    name: "claude-opus-4-8"
+    temperature: 0.2
+    thinking: high
+  report:
+    name: "claude-opus-4-8"
+    temperature: 0.3
+    thinking: high
+  chat_answer:
+    name: "claude-sonnet-4-6"
+    temperature: 0.2
+    thinking: medium
+  relevance:
+    name: "claude-haiku-4-5"
+    temperature: 0.0
+    thinking: none
+# NOTE: confirm current model IDs against https://docs.claude.com before the demo.
 
 embedding:
-  model: "gemini-embedding-001"   # fixed per the brief; via Vertex AI + ADC (no key)
-  dimensions: 1536                # MRL-truncated: same MTEB as 3072, half the storage, within pgvector's HNSW limit
+  model: "gemini-embedding-001"
+  dimensions: 1536
   doc_task_type: RETRIEVAL_DOCUMENT
   query_task_type: RETRIEVAL_QUERY
 
 # --- Retrieval ---
 retrieval:
   top_k: 8
-  similarity_threshold: 0.55      # cosine; chunks below this are dropped
-  max_graph_hops: 2               # entity/relationship expansion for comparison queries
-  recency_weights:                # final_score = similarity * (recency_weight ** age_in_halflives)
+  similarity_threshold: 0.55
+  max_graph_hops: 2
+  recency_weights:
     enabled: true
-    decay_base: 0.5               # one half-life => weight halves
+    decay_base: 0.5
 
 # --- Chunking ---
 chunking:
-  chunk_size: 1200                # characters of compiled text per chunk
+  chunk_size: 1200
   chunk_overlap: 150
 
 # --- Ingestion / relevance filter ---
 ingestion:
-  relevance_threshold: 0.6        # 0-1 score from the relevance model; below => discard
+  relevance_threshold: 0.6
   insert_batch_size: 16
 
 # --- Freshness lifecycle (half-life per doc_type, in days) ---
@@ -47,12 +59,12 @@ freshness:
     analyst: 180
     blog: 45
     company_fact: 365
-  stale_after_halflives: 2        # past this multiple of its half-life => status='stale'
+  stale_after_halflives: 2
   head_check_timeout_s: 8
 
 # --- The corpus: tracked competitors (extensible at any time) ---
 competitors:
-  - JFrog            # the anchor; every report compares against it
+  - JFrog
   - Sonatype
   - Snyk
   - Black Duck
@@ -64,24 +76,54 @@ competitors:
   - Aqua Security
 
 # Demo depth: deep-map these now; the rest are seeded and deepened as a Next Step.
-deep_map_now: [JFrog, Snyk, Sonatype, GitLab]
+deep_map_now:
+  - JFrog
+  - Snyk
+  - Sonatype
+  - GitLab
 
 # --- Coverage ontology: the two axes the deep-map, discovery and reports all use ---
 ontology:
   technical:
+    # SCA & Vulnerability Management
     - software_composition_analysis
-    - static_analysis_sast
-    - container_image_scanning
-    - sbom_generation
-    - license_compliance
+    - cve_contextual_analysis
+    - reachability_analysis
+    - impact_analysis
+    - recursive_deep_scanning
+    - operational_risk
+    - security_research
+    # Secrets & Code Security
     - secrets_detection
+    - static_analysis_sast
+    - services_misconfiguration
+    - autofix_remediation
+    # Supply Chain Security
     - malicious_package_detection
+    - open_source_curation
+    - package_firewall
+    - ai_model_scanning
+    - sbom_generation
+    # Infrastructure & Runtime
+    - container_image_scanning
+    - iac_security
+    - runtime_security
+    # License & Policy
+    - license_compliance
     - policy_governance
+    # Platform & Distribution
+    - artifact_management
+    - software_distribution
+    - edge_node_delivery
+    - release_lifecycle_management
+    - architecture_deployment_model
+    # MLOps
+    - mlops_model_registry
+    # Developer Experience
     - ci_cd_ide_integrations
     - supported_ecosystems
-    - architecture_deployment_model
-    - ai_features
     - release_cadence
+    - ai_features
   business:
     - market_positioning
     - target_segments_icp
