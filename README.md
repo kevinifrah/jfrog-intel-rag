@@ -1,0 +1,473 @@
+# CI Engine
+
+CI Engine is a competitive-intelligence RAG system for the software supply chain security market. It builds a cited, queryable knowledge base about JFrog and competitors across technical capabilities and business signals.
+
+The system is designed for evidence-backed answers. It does not use model memory at answer time. Acquisition and ingestion may use AI to find, classify, and synthesize source material, but normal retrieval reads only active evidence stored in Cloud SQL.
+
+## What This Project Is For
+
+CI Engine helps answer questions such as:
+
+- What products does each competitor offer?
+- Does a competitor cover a capability such as package firewall, SBOM generation, reachability analysis, or runtime security?
+- Is coverage current, partial, planned, absent, or still unknown?
+- What market positioning, pricing, ICP, customer, analyst, partnership, funding, M&A, or win/loss signals exist?
+- Which claims are backed by official sources, and which come from third-party evidence?
+- Where does JFrog lead, match, lag, or still need more evidence?
+
+The core business use case is competitive intelligence for JFrog across software supply chain security, DevSecOps, artifact management, SCA, package security, MLOps, and AI supply chain.
+
+## Core Principles
+
+- **The database is the source of truth.** Reports, chat, MCP tools, and retrieval read from Cloud SQL.
+- **Acquisition is the only layer that touches the internet.** Retrieval does not browse.
+- **Every answer should be grounded in active stored evidence.** Stored chunks carry source URLs and provenance.
+- **Unknown is intentional.** Unknown means the system cannot safely say present, partial, planned, or absent.
+- **Absent requires explicit negative evidence.** No evidence is never enough to say a company does not cover something.
+- **Prompts live in skills.** Model instructions are stored in `src/ci_engine/skills/*/SKILL.md`, not hardcoded in application code.
+- **Tunable behavior lives in config.** Models, ontology, thresholds, companies, chunking, and retrieval settings live in `src/ci_engine/config.yaml`.
+- **Healing is non-destructive and auditable.** The system marks stale or corrects metadata only with audit records.
+
+## Documentation Map
+
+- [Repo Structure](docs/repo-structure.md) - where code lives and where to change behavior.
+- [Business Context](docs/business-context.md) - what the system means for competitive intelligence.
+- [Architecture](docs/architecture.md) - data flow, DB schema, ontology, retrieval, and coverage status design.
+- [AI and Models](docs/ai-and-models.md) - what AI manages, which models are used, and what is deterministic.
+- [Operations](docs/operations.md) - setup, commands, safe rollout, and troubleshooting.
+
+## Repository Map
+
+Top-level:
+
+- `src/ci_engine/` - application code.
+- `tests/` - unit and integration-style tests.
+- `raw_snapshots/` - fetched/source snapshots for provenance.
+- `ops/` - operational or deployment assets.
+- `CLAUDE.md` - operating constitution and non-negotiable design rules.
+- `pyproject.toml` and `uv.lock` - packaging and dependency management.
+- `deep_map.log` - local run log. It is not the source of truth.
+
+Important packages:
+
+- `acquire/` - web, Tavily, Context7, company-profile, and snapshot acquisition lanes.
+- `db/` - Cloud SQL connection, schema, repository functions, healing, and backfill CLIs.
+- `embed/` - Vertex AI / Gemini embedding client.
+- `mcp/` - MCP retrieval server and tools.
+- `retrieve/` - read-only retrieval API.
+- `skills/` - model prompts and instruction assets.
+- `synthesize/` - deep map, ingestion pipeline, synthesis, scope closure, and verdict logic.
+- `ontology.py` - canonical dimension and alias normalization.
+- `dimension_coverage.py` - coverage states, inference, missing reasons, and rollups.
+- `config.py` and `config.yaml` - config loader and single source of tunable config.
+
+## System At A Glance
+
+```text
+Configured companies + ontology
+        |
+        v
+Deep map / scope closure
+        |
+        v
+Acquisition lanes
+  - Anthropic web research
+  - Tavily search
+  - Context7 docs
+  - Direct web fetch/snapshots
+        |
+        v
+Relevance and coverage verdicts
+        |
+        v
+Synthesis into compiled evidence
+        |
+        v
+Chunks + embeddings + entities + relationships
+        |
+        v
+Cloud SQL / pgvector
+        |
+        v
+Read-only retrieval + MCP tools
+```
+
+## Quickstart
+
+Install dependencies:
+
+```bash
+cd /Users/kevinifrah/jfrog-intel-rag
+uv sync
+```
+
+Configure GCP application-default credentials:
+
+```bash
+gcloud config set project jfrog-intel-rag
+gcloud auth application-default login
+```
+
+Apply or refresh the schema:
+
+```bash
+gcloud sql connect ci-db --user=postgres --database=ci --project=jfrog-intel-rag
+```
+
+Inside `psql`:
+
+```sql
+\i /Users/kevinifrah/jfrog-intel-rag/src/ci_engine/db/schema.sql
+\q
+```
+
+Check DB connectivity:
+
+```bash
+.venv/bin/python -m ci_engine.db.doctor
+```
+
+Run tests:
+
+```bash
+.venv/bin/python -m pytest
+```
+
+## Main Workflows
+
+### Deep Map
+
+Run the full configured deep map for `deep_map_now` companies:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map
+```
+
+Run one company:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map --competitor JFrog
+```
+
+Limit candidate volume during testing:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map \
+  --competitor JFrog \
+  --max-candidates-per-dimension 2
+```
+
+`deep_map_now` is configured in `src/ci_engine/config.yaml` and currently includes:
+
+- JFrog
+- Snyk
+- Sonatype
+- GitLab
+
+### Retrieve Evidence
+
+Use the read-only retrieval method:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+result = retrieve(
+    "Does Snyk have a package firewall product that blocks package downloads?",
+    axis="technical",
+    competitors=["Snyk"],
+    dimensions=["package_firewall"],
+)
+
+print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+Examples:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+cases = [
+    ("What products does Sonatype offer?", "technical", ["Sonatype"], ["product_portfolio"]),
+    ("Does JFrog Curation block package downloads?", "technical", ["JFrog"], ["package_firewall"]),
+    ("Where is GitLab partial or unknown?", "technical", ["GitLab"], ["recursive_deep_scanning"]),
+    ("Which JFrog products are deprecated or sunset?", "technical", ["JFrog"], ["product_portfolio"]),
+]
+
+for query, axis, competitors, dimensions in cases:
+    result = retrieve(query, axis=axis, competitors=competitors, dimensions=dimensions)
+    print("\\n==", query, "==")
+    print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+### Run The MCP Server
+
+```bash
+.venv/bin/python -m ci_engine.mcp.server
+```
+
+The server exposes tools including:
+
+- `search`
+- `get_competitor`
+- `compare_competitors`
+- `latest_updates`
+- `coverage_status`
+
+`search` accepts `dimensions`, so callers can scope retrieval to exact ontology dimensions.
+
+### Heal Dimensions
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_dimensions --dry-run
+```
+
+Apply:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_dimensions --apply
+```
+
+This canonicalizes source dimensions and marks only known-bad sources stale. It does not delete sources or chunks.
+
+### Backfill Coverage Status
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_coverage_status --dry-run
+```
+
+Apply:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_coverage_status --apply
+```
+
+This creates or refreshes coverage assertions and rollups from existing active sources.
+
+### Close Unknown Scope Gaps
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --dry-run --only-deep-map-now --max-gaps 20
+```
+
+Small apply batch:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --apply --only-deep-map-now --max-gaps 2 --max-candidates-per-gap 1 --review-absent
+```
+
+Targeted apply:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --apply \
+  --competitor Snyk \
+  --axis technical \
+  --dimension package_firewall \
+  --max-gaps 1 \
+  --max-candidates-per-gap 2 \
+  --review-absent
+```
+
+Scope closure researches unknown, planned, or partial gaps, classifies candidates, and ingests only accepted evidence. It never marks absence from no results.
+
+## Coverage States
+
+Coverage is stored as assertions and rolled up per competitor, axis, and dimension.
+
+- `present` - reliable current evidence supports coverage.
+- `partial` - evidence supports limited or scoped coverage.
+- `planned` - roadmap, beta, proposal, or coming-soon evidence.
+- `absent` - reliable evidence explicitly says the company does not support or offer the capability.
+- `unknown` - evidence is missing, weak, ambiguous, or out of scope.
+
+Two important kinds of unknown:
+
+- **Unknown data** - no reliable evidence has been found or stored.
+- **Unknown scope** - evidence exists, but it does not answer the exact dimension.
+
+Retrieval reports missing reasons:
+
+- `unknown_coverage`
+- `known_absent`
+- `planned_only`
+- `partial_coverage`
+- `no_matching_chunks`
+
+## What Is Managed By AI
+
+AI is used during acquisition and ingestion, not as the source of truth at answer time.
+
+Current model configuration is in `src/ci_engine/config.yaml`:
+
+- Web research report generation: `claude-sonnet-4-6`
+- Report splitting: `claude-haiku-4-5`
+- Relevance scoring: `claude-haiku-4-5`
+- Ingestion synthesis: `claude-opus-4-8`
+- Coverage verdict fallback: `claude-haiku-4-5`
+- Embeddings: `gemini-embedding-001`, 1536 dimensions, via Vertex AI
+
+Deterministic code handles:
+
+- Config loading
+- Ontology normalization
+- Dimension alias expansion
+- DB schema, writes, and audits
+- Stale marking rules
+- Rollup precedence
+- Retrieval filters
+- Conservative verdict guards
+
+See [AI and Models](docs/ai-and-models.md) for details.
+
+## What We Implemented And Why
+
+### Ontology Normalization
+
+Problem: ingestion could drift into non-canonical dimension labels such as `vulnerability_remediation`, `sbom_support`, or `market_position`.
+
+Implementation:
+
+- Canonical dimensions are loaded from `config.yaml`.
+- Aliases are normalized in `ontology.py`.
+- Candidate dimensions from deep map and scope closure are authoritative.
+- LLM synthesis may enrich metadata, but cannot replace a supplied canonical candidate dimension.
+
+Why: retrieval filters and coverage rollups only work reliably when dimensions stay within the configured ontology.
+
+### DB Healing
+
+Problem: existing rows had dimension drift and some accepted sources were false positives.
+
+Implementation:
+
+- `heal_dimensions` canonicalizes dimensions.
+- Known-bad or deterministic wrong-scope sources can be marked `stale`.
+- Source/chunk content is preserved.
+- `source_healing_audit` records every metadata/status change.
+
+Why: healing should preserve evidence and provenance, not delete important data.
+
+### Coverage Status
+
+Problem: missing information was ambiguous. It could mean no data, partial support, roadmap support, explicit non-support, or weak evidence.
+
+Implementation:
+
+- Source-level assertions live in `dimension_coverage_assertions`.
+- Rollups live in `dimension_coverage_status`.
+- Audit rows live in `dimension_coverage_audit`.
+- States are `present`, `partial`, `planned`, `absent`, and `unknown`.
+
+Why: retrieval and business analysis need to distinguish true non-coverage from missing or scoped evidence.
+
+### AI-Assisted Scope Closure
+
+Problem: unknown gaps need targeted research, but the system must not guess or mark absence from silence.
+
+Implementation:
+
+- `close_coverage_scope` finds unknown, planned, or partial gaps.
+- Acquisition lanes search targeted topics for each gap.
+- `coverage_verdict` classifies candidates as `present`, `partial`, `planned`, `explicit_absent`, `irrelevant`, `still_unknown`, or `needs_review`.
+- Accepted candidates are stamped with canonical axis, dimension, and evidence state.
+- `--review-absent` sends risky absence claims to review instead of ingesting them.
+
+Why: coverage can be closed safely while preserving auditability and avoiding false negatives.
+
+### Retrieval Improvements
+
+Problem: retrieval could miss dimension aliases, over-return from one company, or report noisy missing coverage.
+
+Implementation:
+
+- Dimension filters expand through aliases.
+- Vector search considers assertion-backed dimensions.
+- Multi-company retrieval uses a per-company quota before merging.
+- Retrieval returns at most configured `top_k`.
+- Missing coverage is reported only for explicitly requested dimensions.
+- Missing reasons use coverage state.
+
+Why: scoped searches need high precision, broad searches need balance, and missing output must be meaningful.
+
+### MCP Search Dimensions
+
+Problem: MCP callers needed to scope search to ontology dimensions.
+
+Implementation:
+
+- MCP `search` accepts `dimensions: list[str] | None`.
+- MCP tools return cited chunks and missing coverage.
+
+Why: external clients can ask targeted questions without guessing internal filters.
+
+## Configuration
+
+`src/ci_engine/config.yaml` controls:
+
+- GCP project and region
+- Cloud SQL connection settings
+- Model names and model parameters
+- Embedding model and dimensions
+- Retrieval `top_k`, similarity threshold, and graph settings
+- Chunk size and overlap
+- Ingestion thresholds and lane toggles
+- Freshness policy
+- Tracked companies
+- `deep_map_now`
+- Technical and business ontology dimensions
+
+Do not hardcode tunables in source code when they belong in config.
+
+## Infrastructure
+
+Configured defaults:
+
+- GCP project: `jfrog-intel-rag`
+- Region: `europe-west1`
+- Cloud SQL instance: `ci-db`
+- Database: `ci`
+- IAM DB user: `ci-engine-sa@jfrog-intel-rag.iam`
+- Service account: `ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com`
+- Secrets: `anthropic-key`, `tavily-key`, `context7-key`, `telegram-token`
+
+Secret values must never be committed or documented.
+
+## Testing
+
+Run all tests:
+
+```bash
+.venv/bin/python -m pytest
+```
+
+Run focused tests:
+
+```bash
+.venv/bin/python -m pytest tests/test_retrieval.py
+.venv/bin/python -m pytest tests/test_coverage_verdict.py
+.venv/bin/python -m pytest tests/test_pipeline.py
+```
+
+## Safety Notes
+
+- Do not delete sources to fix coverage. Mark stale with audit when needed.
+- Do not run large scope-closure apply batches before reviewing dry-run output.
+- Do not treat `unknown` as `absent`.
+- Do not add prompt strings in Python modules. Use `skills/`.
+- Do not add model names outside `config.yaml`.
+- Do not add retrieval-time web access.
+

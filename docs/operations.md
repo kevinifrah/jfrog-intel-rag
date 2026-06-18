@@ -1,0 +1,447 @@
+# Operations
+
+This document explains how to run CI Engine locally and safely operate the database-backed workflows.
+
+## Infrastructure Defaults
+
+Configured in `src/ci_engine/config.yaml`:
+
+- GCP project: `jfrog-intel-rag`
+- Region: `europe-west1`
+- Cloud SQL instance: `ci-db`
+- Cloud SQL connection name: `jfrog-intel-rag:europe-west1:ci-db`
+- Database: `ci`
+- DB driver: `pg8000`
+- IAM DB user: `ci-engine-sa@jfrog-intel-rag.iam`
+- Service account: `ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com`
+- Secrets:
+  - `anthropic-key`
+  - `tavily-key`
+  - `context7-key`
+  - `telegram-token`
+
+Never document or commit secret values.
+
+## Local Setup
+
+Install dependencies:
+
+```bash
+cd /Users/kevinifrah/jfrog-intel-rag
+uv sync
+```
+
+Set GCP project and authenticate ADC:
+
+```bash
+gcloud config set project jfrog-intel-rag
+gcloud auth application-default login
+```
+
+If your local identity needs to impersonate the CI service account, it must have permission to impersonate:
+
+- `ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com`
+
+The service account must be able to connect to Cloud SQL and use IAM DB auth.
+
+## Apply Schema
+
+Connect to Cloud SQL:
+
+```bash
+gcloud sql connect ci-db --user=postgres --database=ci --project=jfrog-intel-rag
+```
+
+Inside `psql`:
+
+```sql
+\i /Users/kevinifrah/jfrog-intel-rag/src/ci_engine/db/schema.sql
+\q
+```
+
+Expected behavior:
+
+- existing extension/table/index notices are okay
+- `CREATE TABLE` lines may appear even when tables already exist because schema uses `IF NOT EXISTS`
+- grants are re-applied
+
+## Doctor
+
+Run:
+
+```bash
+.venv/bin/python -m ci_engine.db.doctor
+```
+
+This prints:
+
+- DB connection settings without secrets
+- ADC summary
+- healthcheck result
+- actionable IAM error messages when auth fails
+
+## Deep Map
+
+Run full `deep_map_now`:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map
+```
+
+Run one company:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map --competitor JFrog
+```
+
+Limit candidate volume:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map \
+  --competitor JFrog \
+  --max-candidates-per-dimension 2
+```
+
+Deep map:
+
+- preflights the DB
+- gathers candidates by dimension
+- ingests accepted evidence
+- updates coverage
+- prints a JSON report
+
+## Ingest One URL
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.run \
+  --competitor JFrog \
+  --url https://jfrog.com/platform
+```
+
+This is useful for targeted ingestion and debugging.
+
+## Retrieval Examples
+
+Snyk package firewall:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+result = retrieve(
+    "Does Snyk have a package firewall product that blocks package downloads?",
+    axis="technical",
+    competitors=["Snyk"],
+    dimensions=["package_firewall"],
+)
+print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+JFrog package firewall:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+result = retrieve(
+    "Does JFrog Curation block package downloads like a package firewall?",
+    axis="technical",
+    competitors=["JFrog"],
+    dimensions=["package_firewall"],
+)
+print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+Product portfolio:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+result = retrieve(
+    "List the product portfolio and main products for JFrog and Sonatype",
+    axis="technical",
+    competitors=["JFrog", "Sonatype"],
+    dimensions=["product_portfolio"],
+)
+print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+Multi-company reachability:
+
+```bash
+.venv/bin/python - <<'PY'
+import json
+from ci_engine.retrieve import retrieve
+
+result = retrieve(
+    "Which companies support reachability analysis for vulnerable open source dependencies?",
+    axis="technical",
+    competitors=["Snyk", "Sonatype", "GitLab", "JFrog"],
+    dimensions=["reachability_analysis"],
+)
+print(json.dumps(result, indent=2, default=str))
+PY
+```
+
+## MCP Server
+
+Run locally:
+
+```bash
+.venv/bin/python -m ci_engine.mcp.server
+```
+
+Environment variables:
+
+- `PORT` - defaults to `8080`
+- `MCP_SHARED_TOKEN` - optional shared auth token
+- `MCP_ALLOWED_HOSTS` - comma-separated allowed hosts
+- `MCP_ALLOWED_ORIGINS` - comma-separated allowed origins
+
+Tools:
+
+- `search`
+- `get_competitor`
+- `compare_competitors`
+- `latest_updates`
+- `coverage_status`
+
+## Heal Dimensions
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_dimensions --dry-run
+```
+
+Apply:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_dimensions --apply
+```
+
+Optional smaller output:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_dimensions --dry-run --max-items 20
+```
+
+What it does:
+
+- canonicalizes known dimension aliases
+- marks known-bad URLs stale
+- marks deterministic wrong-company docs stale
+- records changes in `source_healing_audit`
+
+What it does not do:
+
+- delete sources
+- delete chunks
+- infer absence
+- run broad LLM cleanup
+
+## Backfill Coverage Status
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_coverage_status --dry-run
+```
+
+Apply:
+
+```bash
+.venv/bin/python -m ci_engine.db.heal_coverage_status --apply
+```
+
+What it does:
+
+- reads active sources/chunks
+- derives coverage assertions
+- upserts assertions
+- refreshes status rollups
+- reports status counts, unknowns, and conflicts
+
+## Close Unknown Scope
+
+Dry run:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --dry-run --only-deep-map-now --max-gaps 20
+```
+
+Small apply batch:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --apply --only-deep-map-now --max-gaps 2 --max-candidates-per-gap 1 --review-absent
+```
+
+Target one company/dimension:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.close_coverage_scope \
+  --apply \
+  --competitor Snyk \
+  --axis technical \
+  --dimension package_firewall \
+  --state unknown \
+  --max-gaps 1 \
+  --max-candidates-per-gap 2 \
+  --review-absent
+```
+
+Useful filters:
+
+- `--competitor`
+- `--dimension`
+- `--axis`
+- `--state unknown|planned|partial`
+- `--only-deep-map-now`
+- `--max-gaps`
+- `--max-candidates-per-gap`
+- `--review-absent`
+
+Safe operating rule:
+
+- always run dry-run first
+- use small apply batches
+- inspect `review`
+- validate retrieval after apply
+
+## Tests
+
+Run all tests:
+
+```bash
+.venv/bin/python -m pytest
+```
+
+Focused tests:
+
+```bash
+.venv/bin/python -m pytest tests/test_retrieval.py
+.venv/bin/python -m pytest tests/test_coverage_verdict.py
+.venv/bin/python -m pytest tests/test_pipeline.py
+.venv/bin/python -m pytest tests/test_heal_dimensions.py tests/test_heal_coverage_status.py
+```
+
+## Troubleshooting
+
+### IAM auth fails
+
+Run:
+
+```bash
+.venv/bin/python -m ci_engine.db.doctor
+```
+
+Check:
+
+- local ADC exists
+- the ADC principal can impersonate `ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com`
+- the service account has Cloud SQL permissions
+- the Cloud SQL IAM DB user exists
+
+### Schema table or index is missing
+
+Apply schema again:
+
+```bash
+gcloud sql connect ci-db --user=postgres --database=ci --project=jfrog-intel-rag
+```
+
+Inside `psql`:
+
+```sql
+\i /Users/kevinifrah/jfrog-intel-rag/src/ci_engine/db/schema.sql
+\q
+```
+
+### Retrieval returns `unknown_coverage`
+
+Interpretation:
+
+- no safe present/partial/planned/absent classification exists
+- the DB may have no evidence
+- or the DB may have reviewed evidence that was out of scope
+
+Next step:
+
+- run targeted scope closure
+- inspect assertions and audit rows
+- do not treat unknown as absent
+
+### Retrieval returns `partial_coverage`
+
+Interpretation:
+
+- evidence exists, but only for limited or scoped coverage
+
+Next step:
+
+- answer with the limitation
+- run scope closure if broader coverage may exist
+
+### Scope closure finds noisy candidates
+
+Expected behavior:
+
+- verdicts should classify noisy candidates as `irrelevant` or `needs_review`
+- accepted candidates should be small and evidence-backed
+
+If a false positive is accepted:
+
+- add or tighten a deterministic guard in `coverage_verdict.py`
+- update `coverage-verdict/SKILL.md`
+- add a regression test
+- correct the DB with an audit trail
+
+### Duplicate content
+
+Duplicate content can return:
+
+```json
+{"skipped": "duplicate content"}
+```
+
+This means the source/content hash already exists. The pipeline may still refresh citations or assertions, but it should not re-embed duplicate chunks.
+
+### Embedding errors
+
+Check:
+
+- ADC has Vertex AI access
+- `project.gcp_project_id` is correct
+- region is supported
+- embedding dimensionality matches schema and config
+
+## Safe Rollout Checklist
+
+Before mutation:
+
+- run dry-run
+- check candidate topics
+- inspect expected affected gaps
+
+During mutation:
+
+- use small batches
+- keep `--review-absent`
+- watch errors and review queue
+
+After mutation:
+
+- run retrieval spot checks
+- check coverage status counts
+- run focused tests
+- run full tests when code changed
+

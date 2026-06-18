@@ -1,19 +1,28 @@
 from __future__ import annotations
 
+import atexit
 from threading import Lock
 from typing import Any
 
+import google.auth
 import pg8000.dbapi
+from google.auth import impersonated_credentials
+from google.auth.credentials import Credentials
 from google.cloud.sql.connector import Connector
-from pgvector.pg8000 import register_vector
 from pgvector.sqlalchemy import VECTOR as _VECTOR
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
-INSTANCE_CONNECTION_NAME = "jfrog-intel-rag:europe-west1:ci-db"
-DB_NAME = "ci"
-DB_USER = "ci-engine-sa@jfrog-intel-rag.iam"
-DB_DRIVER = "pg8000"
+from ci_engine.config import get as config_get
+
+_CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+
+INSTANCE_CONNECTION_NAME = str(
+    config_get("database.instance_connection_name", "jfrog-intel-rag:europe-west1:ci-db")
+)
+DB_NAME = str(config_get("database.name", "ci"))
+DB_USER = str(config_get("database.iam_user", "ci-engine-sa@jfrog-intel-rag.iam"))
+DB_DRIVER = str(config_get("database.driver", "pg8000"))
 
 _engine: Engine | None = None
 _connector: Connector | None = None
@@ -42,13 +51,12 @@ def _connect() -> pg8000.dbapi.Connection:
         raise RuntimeError("Cloud SQL connector has not been initialized")
 
     conn: pg8000.dbapi.Connection = _connector.connect(
-        INSTANCE_CONNECTION_NAME,
-        DB_DRIVER,
-        user=DB_USER,
-        db=DB_NAME,
-        enable_iam_auth=True,
+        _instance_connection_name(),
+        _db_driver(),
+        user=_db_user(),
+        db=_db_name(),
+        enable_iam_auth=_enable_iam_auth(),
     )
-    register_vector(conn)
     return conn
 
 
@@ -59,7 +67,12 @@ def get_engine() -> Engine:
     if _engine is None:
         with _engine_lock:
             if _engine is None:
-                _connector = Connector(refresh_strategy="lazy")
+                _connector = Connector(
+                    refresh_strategy="lazy",
+                    credentials=_connector_credentials(),
+                    quota_project=str(config_get("project.gcp_project_id", "jfrog-intel-rag")),
+                    timeout=int(config_get("database.connect_timeout_s", 15)),
+                )
                 _engine = create_engine(
                     "postgresql+pg8000://",
                     creator=_connect,
@@ -75,6 +88,38 @@ def healthcheck() -> int:
         return int(conn.execute(text("SELECT 1")).scalar_one())
 
 
+def describe_connection_error(exc: BaseException) -> str:
+    """Return a concise, actionable database connection diagnosis."""
+    message = str(exc)
+    if "Cloud SQL IAM service account authentication failed" in message:
+        return (
+            f"Cloud SQL IAM auth failed for database user {_db_user()}. "
+            f"Local ADC is impersonating {_impersonated_service_account() or 'no service account'}. "
+            "Ensure the impersonated service account has roles/cloudsql.client and "
+            "roles/cloudsql.instanceUser, and that the Cloud SQL instance has an IAM "
+            f"database user named {_db_user()} of type CLOUD_IAM_SERVICE_ACCOUNT."
+        )
+    if "iamcredentials" in message.lower() or "iam.serviceAccounts.getAccessToken" in message:
+        return (
+            f"Could not impersonate {_impersonated_service_account()}. "
+            "Grant your local ADC principal roles/iam.serviceAccountTokenCreator on that "
+            "service account, then retry."
+        )
+    return message
+
+
+def connection_settings() -> dict[str, Any]:
+    """Return non-secret DB settings for diagnostics and logs."""
+    return {
+        "instance_connection_name": _instance_connection_name(),
+        "database": _db_name(),
+        "driver": _db_driver(),
+        "iam_user": _db_user(),
+        "enable_iam_auth": _enable_iam_auth(),
+        "impersonate_service_account": _impersonated_service_account(),
+    }
+
+
 def close_engine() -> None:
     """Dispose the engine and close the Cloud SQL connector."""
     global _connector, _engine
@@ -88,11 +133,69 @@ def close_engine() -> None:
             _connector = None
 
 
+atexit.register(close_engine)
+
+
+def _connector_credentials() -> Credentials | None:
+    target = _impersonated_service_account()
+    if not target:
+        return None
+
+    source_credentials, _project_id = google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE])
+    if _credential_principal(source_credentials) == target:
+        return source_credentials
+
+    return impersonated_credentials.Credentials(
+        source_credentials=source_credentials,
+        target_principal=target,
+        target_scopes=[_CLOUD_PLATFORM_SCOPE],
+        quota_project_id=str(config_get("project.gcp_project_id", "jfrog-intel-rag")),
+    )
+
+
+def _credential_principal(credentials: Credentials) -> str | None:
+    for attribute in ("service_account_email", "target_principal"):
+        value = getattr(credentials, attribute, None)
+        if value:
+            return str(value)
+    return None
+
+
+def _instance_connection_name() -> str:
+    return str(config_get("database.instance_connection_name", INSTANCE_CONNECTION_NAME))
+
+
+def _db_name() -> str:
+    return str(config_get("database.name", DB_NAME))
+
+
+def _db_user() -> str:
+    return str(config_get("database.iam_user", DB_USER))
+
+
+def _db_driver() -> str:
+    return str(config_get("database.driver", DB_DRIVER))
+
+
+def _enable_iam_auth() -> bool:
+    return bool(config_get("database.enable_iam_auth", True))
+
+
+def _impersonated_service_account() -> str | None:
+    value = config_get("database.impersonate_service_account")
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
 __all__ = [
     "close_engine",
+    "connection_settings",
     "DB_DRIVER",
     "DB_NAME",
     "DB_USER",
+    "describe_connection_error",
     "INSTANCE_CONNECTION_NAME",
     "VECTOR",
     "get_engine",

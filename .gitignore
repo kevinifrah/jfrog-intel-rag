@@ -4,6 +4,8 @@ __pycache__/
 .env
 *.env
 raw_snapshots/
+deep_map.log
+.claude/
 *.sqlite
 .DS_Store
 *-key.json

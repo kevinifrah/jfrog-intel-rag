@@ -4,12 +4,23 @@ project:
   gcp_project_id: jfrog-intel-rag
   region: europe-west1
 
+database:
+  instance_connection_name: "jfrog-intel-rag:europe-west1:ci-db"
+  name: "ci"
+  driver: "pg8000"
+  enable_iam_auth: true
+  iam_user: "ci-engine-sa@jfrog-intel-rag.iam"
+  impersonate_service_account: "ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com"
+  connect_timeout_s: 15
+
 # --- LLMs: most capable model the task needs; cost reduced only where it doesn't cost quality ---
 models:
   synthesis:
     name: "claude-opus-4-8"
     temperature: 0.2
     thinking: high
+    max_tokens: 12000
+    timeout_s: 120
   report:
     name: "claude-opus-4-8"
     temperature: 0.3
@@ -18,6 +29,17 @@ models:
     name: "claude-sonnet-4-6"
     temperature: 0.2
     thinking: medium
+  web_research:
+    name: "claude-sonnet-4-6"
+    temperature: 0.0
+    max_tokens: 12000
+    timeout_s: 180
+    web_search_max_uses: 12
+  report_splitter:
+    name: "claude-haiku-4-5"
+    temperature: 0.0
+    max_tokens: 12000
+    timeout_s: 180
   relevance:
     name: "claude-haiku-4-5"
     temperature: 0.0
@@ -35,6 +57,8 @@ retrieval:
   top_k: 8
   similarity_threshold: 0.55
   max_graph_hops: 2
+  research_on_missing:
+    max_candidates_per_gap: 4
   recency_weights:
     enabled: true
     decay_base: 0.5
@@ -46,8 +70,19 @@ chunking:
 
 # --- Ingestion / relevance filter ---
 ingestion:
+  preflight_db: true
   relevance_threshold: 0.6
   insert_batch_size: 16
+  llm_timeout_s: 30
+  web_discovery_timeout_s: 30
+  relevance_content_chars: 6000
+  max_report_slices: 32
+  enable_web_research_lane: true
+  enable_tavily_lane: true
+  enable_context7_lane: true
+  max_company_profile_candidates: 8
+  max_candidates_per_dimension: 8
+  profile_feed_limit: 3
 
 # --- Freshness lifecycle (half-life per doc_type, in days) ---
 freshness:
@@ -62,8 +97,8 @@ freshness:
   stale_after_halflives: 2
   head_check_timeout_s: 8
 
-# --- The corpus: tracked competitors (extensible at any time) ---
-competitors:
+# --- The corpus: tracked companies (extensible at any time) ---
+companies:
   - JFrog
   - Sonatype
   - Snyk
@@ -85,6 +120,8 @@ deep_map_now:
 # --- Coverage ontology: the two axes the deep-map, discovery and reports all use ---
 ontology:
   technical:
+    # Company/Product Baseline
+    - product_portfolio
     # SCA & Vulnerability Management
     - software_composition_analysis
     - cve_contextual_analysis
@@ -125,6 +162,7 @@ ontology:
     - release_cadence
     - ai_features
   business:
+    - company_profile
     - market_positioning
     - target_segments_icp
     - pricing_packaging

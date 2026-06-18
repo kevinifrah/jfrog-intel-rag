@@ -17,3 +17,11 @@ def get(path: str, default: Any = None) -> Any:
             return default
         node = node[key]
     return node
+
+
+def tracked_companies() -> list[str]:
+    """Return company names tracked by the corpus.
+
+    `competitors` is kept as a legacy fallback for older config files.
+    """
+    return list(get("companies", get("competitors", [])))
