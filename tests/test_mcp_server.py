@@ -374,6 +374,290 @@ def test_coverage_status_returns_gap_map(monkeypatch):
     }
 
 
+def test_coverage_matrix_merges_source_and_rollup_status(monkeypatch):
+    monkeypatch.setattr(
+        server.repository,
+        "coverage_status",
+        lambda: [
+            {
+                "competitor": "Sonatype",
+                "axis": "technical",
+                "dimension": "sbom_generation",
+                "active_sources": 2,
+                "freshest_publish_date": date(2026, 2, 1),
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        server.repository,
+        "dimension_coverage_status",
+        lambda **kwargs: [
+            {
+                "competitor": "Sonatype",
+                "axis": "technical",
+                "dimension": "sbom_generation",
+                "state": "present",
+                "confidence": 0.8,
+                "strongest_source_id": 42,
+                "conflict": False,
+                "updated_at": datetime(2026, 2, 2, tzinfo=timezone.utc),
+            }
+        ],
+    )
+
+    result = server.coverage_matrix(
+        competitors=["Sonatype"],
+        dimensions=["sbom_generation"],
+    )
+
+    assert result["coverage"] == [
+        {
+            "competitor": "Sonatype",
+            "axis": "technical",
+            "dimension": "sbom_generation",
+            "active_sources": 2,
+            "freshest_publish_date": "2026-02-01",
+            "coverage_state": "present",
+            "coverage_confidence": 0.8,
+            "coverage_conflict": False,
+            "strongest_source_id": 42,
+            "updated_at": "2026-02-02T00:00:00+00:00",
+        }
+    ]
+
+
+def test_find_evidence_gaps_filters_missing(monkeypatch):
+    monkeypatch.setattr(server.repository, "coverage_status", lambda: [])
+    monkeypatch.setattr(
+        server.repository,
+        "dimension_coverage_status",
+        lambda **kwargs: [
+            {
+                "competitor": "Sonatype",
+                "axis": "business",
+                "dimension": "pricing_packaging",
+                "state": "unknown",
+                "confidence": 0.0,
+                "conflict": False,
+            }
+        ],
+    )
+
+    result = server.find_evidence_gaps(
+        competitors=["Sonatype"],
+        axis="business",
+        dimensions=["pricing_packaging"],
+    )
+
+    assert result["missing"][0]["reason"] == "unknown_coverage"
+    assert result["missing"][0]["dimension"] == "pricing_packaging"
+
+
+def test_get_source_detail_groups_active_chunks(monkeypatch):
+    monkeypatch.setattr(
+        server.repository,
+        "active_chunks",
+        lambda **kwargs: [
+            {
+                "chunk_id": 1,
+                "source_id": 7,
+                "chunk_text": "Source detail chunk.",
+                "url": "https://example.com/source",
+                "title": "Source",
+                "publish_date": date(2026, 3, 1),
+                "fetched_at": datetime(2026, 3, 2, tzinfo=timezone.utc),
+                "axis": "technical",
+                "dimension": "sbom_generation",
+                "doc_type": "docs",
+                "competitor": "Sonatype",
+                "source_kind": "official",
+                "raw_path": "raw/source.md",
+                "citations": [{"url": "https://example.com/source"}],
+            }
+        ],
+    )
+
+    result = server.get_source_detail([7, 8])
+
+    assert result["sources"][0]["source_id"] == 7
+    assert result["sources"][0]["chunks"][0]["chunk_text"] == "Source detail chunk."
+    assert result["missing"] == [{"source_id": 8, "reason": "no_active_source_or_chunks"}]
+
+
+def test_source_inventory_delegates_to_repository_and_serializes(monkeypatch):
+    captured = {}
+
+    def fake_source_inventory(**kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "source_id": 9,
+                "competitor": "Sonatype",
+                "axis": "technical",
+                "doc_type": "docs",
+                "dimension": "sbom_generation",
+                "url": "https://sonatype.com/sbom",
+                "title": "SBOM",
+                "publish_date": date(2026, 4, 1),
+                "fetched_at": datetime(2026, 4, 2, tzinfo=timezone.utc),
+                "source_kind": "docs",
+                "raw_path": "raw/sonatype/sbom.md",
+                "chunk_count": 3,
+                "citation_count": 1,
+            }
+        ]
+
+    monkeypatch.setattr(server.repository, "source_inventory", fake_source_inventory)
+
+    result = server.source_inventory(
+        competitors=["Sonatype"],
+        dimensions=["sbom_generation"],
+        limit=10,
+    )
+
+    assert captured == {
+        "competitors": ["Sonatype"],
+        "dimensions": ["sbom_generation"],
+        "limit": 10,
+    }
+    assert result["sources"][0]["publish_date"] == "2026-04-01"
+    assert result["sources"][0]["fetched_at"] == "2026-04-02T00:00:00+00:00"
+
+
+def test_build_capability_evidence_matrix_batches_active_chunks(monkeypatch):
+    captured = {}
+
+    def fake_active_chunks(**kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "chunk_id": 1,
+                "source_id": 11,
+                "chunk_text": "JFrog Xray generates SBOM export with CycloneDX and SPDX evidence.",
+                "url": "https://jfrog.com/help/sbom",
+                "title": "JFrog Xray SBOM",
+                "publish_date": date(2026, 2, 1),
+                "fetched_at": datetime(2026, 2, 2, tzinfo=timezone.utc),
+                "axis": "technical",
+                "dimension": "sbom_generation",
+                "doc_type": "docs",
+                "competitor": "JFrog",
+                "source_kind": "docs",
+                "raw_path": "raw/jfrog/sbom.md",
+                "similarity": 0.91,
+                "citations": [{"url": "https://jfrog.com/help/sbom"}],
+            },
+            {
+                "chunk_id": 2,
+                "source_id": 12,
+                "chunk_text": "Sonatype SBOM Manager supports SBOM management and export workflows.",
+                "url": "https://sonatype.com/products/sbom-manager",
+                "title": "Sonatype SBOM Manager",
+                "publish_date": date(2026, 2, 3),
+                "fetched_at": datetime(2026, 2, 4, tzinfo=timezone.utc),
+                "axis": "technical",
+                "dimension": "sbom_generation",
+                "doc_type": "docs",
+                "competitor": "Sonatype",
+                "source_kind": "docs",
+                "raw_path": "raw/sonatype/sbom.md",
+                "similarity": 0.89,
+                "citations": [{"url": "https://sonatype.com/products/sbom-manager"}],
+            },
+        ]
+
+    monkeypatch.setattr(server.repository, "active_chunks", fake_active_chunks)
+
+    result = server.build_capability_evidence_matrix(
+        "Sonatype",
+        max_chunks_per_company_capability=1,
+    )
+
+    assert captured["competitors"] == ["JFrog", "Sonatype"]
+    assert captured["axis"] == "technical"
+    assert "sbom_generation" in captured["dimensions"]
+    assert len(result["items"]) == 2
+    assert {item["metadata"]["capability_id"] for item in result["items"]} == {
+        "sbom_generation"
+    }
+    assert len(result["attempts"]) == len(server.CAPABILITY_DEFINITIONS) * 2
+    sbom = next(
+        row
+        for row in result["capability_matrix"]["rows"]
+        if row["capability_id"] == "sbom_generation"
+    )
+    assert sbom["evidence_ids"]
+    assert result["product_catalog"]
+    assert "build_capability_evidence_matrix" in server.__all__
+
+
+def test_build_report_section_evidence_batches_active_chunks(monkeypatch):
+    captured = {}
+
+    def fake_active_chunks(**kwargs):
+        captured.update(kwargs)
+        return [
+            {
+                "chunk_id": 21,
+                "source_id": 31,
+                "chunk_text": "JFrog company profile and customer evidence for an executive snapshot.",
+                "url": "https://jfrog.com/company",
+                "title": "JFrog Company",
+                "publish_date": date(2026, 3, 1),
+                "fetched_at": datetime(2026, 3, 2, tzinfo=timezone.utc),
+                "axis": "business",
+                "dimension": "company_profile",
+                "doc_type": "docs",
+                "competitor": "JFrog",
+                "source_kind": "vendor_site",
+                "raw_path": "raw/jfrog/company.md",
+                "citations": [{"url": "https://jfrog.com/company"}],
+            },
+            {
+                "chunk_id": 22,
+                "source_id": 32,
+                "chunk_text": "Sonatype company profile and customer evidence for an executive snapshot.",
+                "url": "https://sonatype.com/company",
+                "title": "Sonatype Company",
+                "publish_date": date(2026, 3, 3),
+                "fetched_at": datetime(2026, 3, 4, tzinfo=timezone.utc),
+                "axis": "business",
+                "dimension": "company_profile",
+                "doc_type": "docs",
+                "competitor": "Sonatype",
+                "source_kind": "vendor_site",
+                "raw_path": "raw/sonatype/company.md",
+                "citations": [{"url": "https://sonatype.com/company"}],
+            },
+        ]
+
+    monkeypatch.setattr(server.repository, "active_chunks", fake_active_chunks)
+
+    result = server.build_report_section_evidence(
+        "Sonatype",
+        sections=["company_snapshot"],
+        max_chunks_per_company_section=1,
+    )
+
+    assert captured["competitors"] == ["JFrog", "Sonatype"]
+    assert "company_profile" in captured["dimensions"]
+    assert len(result["items"]) == 2
+    assert {item["report_section"] for item in result["items"]} == {"company_snapshot"}
+    assert all(
+        item["metadata"]["retrieval_mode"] == "mcp_batch_section"
+        for item in result["items"]
+    )
+    assert {
+        (row["company"], row["section_id"], row["result_count"])
+        for row in result["coverage"]
+    } == {
+        ("JFrog", "company_snapshot", 1),
+        ("Sonatype", "company_snapshot", 1),
+    }
+    assert result["gaps"] == []
+    assert "build_report_section_evidence" in server.__all__
+
+
 def test_shared_token_middleware_skips_auth_when_unset(monkeypatch):
     monkeypatch.delenv("MCP_SHARED_TOKEN", raising=False)
 

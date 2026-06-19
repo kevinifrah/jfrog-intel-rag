@@ -212,6 +212,79 @@ Tools:
 - `compare_competitors`
 - `latest_updates`
 - `coverage_status`
+- `coverage_matrix`
+- `find_evidence_gaps`
+- `compare_dimension`
+- `get_source_detail`
+- `build_report_section_evidence`
+- `build_capability_evidence_matrix`
+- `build_report_evidence_pack`
+- `source_inventory`
+
+## Competitive Reports
+
+Generate a full `JFrog vs Sonatype` report:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitor Sonatype \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+Default output:
+
+```text
+reports/sonatype/report.json
+reports/sonatype/report.html
+reports/sonatype/report.pdf
+```
+
+The full mode uses:
+
+- DB source inventory
+- batch section retrieval through MCP
+- batch capability retrieval through MCP
+- Tavily web enrichment and targeted validation
+- CrewAI/Sonnet analyst sections
+- Report Checker validation
+- HTML/PDF rendering
+
+Fast DB-only smoke test:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitor Sonatype \
+  --draft-mode deterministic \
+  --formats json,html \
+  --no-web \
+  --out-dir /private/tmp/ci-report-smoke
+```
+
+Useful modes:
+
+- `deterministic` - no live analyst generation; useful for fast retrieval/render smoke tests.
+- `crew_strategy` - Strategy Analyst only.
+- `crew_strategy_market` - strategy plus market/company sections.
+- `crew_strategy_market_technical` - adds technical sections.
+- `crew_strategy_market_technical_field` - adds buyer/field sections.
+- `crew_strategy_market_product_technical_field` - adds product/feature analysis.
+- `crew_strategy_market_product_technical_field_scoring` - full current dossier with scoring.
+
+PDF rendering uses WeasyPrint. If PDF output is skipped because the dependency is missing:
+
+```bash
+uv sync
+```
+
+The renderer sets a writable cache directory under `/tmp` for WeasyPrint/Fontconfig.
+
+Report validation must pass before PDF rendering. If validation fails, inspect:
+
+- `validation.findings` in `report.json`
+- `evidence_pack.gaps`
+- `evidence_pack.metadata.section_batch_coverage`
+- `evidence_pack.capability_matrix.rows`
 
 ## Heal Dimensions
 
@@ -332,6 +405,7 @@ Focused tests:
 .venv/bin/python -m pytest tests/test_coverage_verdict.py
 .venv/bin/python -m pytest tests/test_pipeline.py
 .venv/bin/python -m pytest tests/test_heal_dimensions.py tests/test_heal_coverage_status.py
+.venv/bin/python -m pytest tests/test_report_crew.py tests/test_mcp_server.py
 ```
 
 ## Troubleshooting
@@ -444,4 +518,3 @@ After mutation:
 - check coverage status counts
 - run focused tests
 - run full tests when code changed
-

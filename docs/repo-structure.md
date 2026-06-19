@@ -35,6 +35,7 @@ The application package is `src/ci_engine/`.
 ```text
 src/ci_engine/
 ├── acquire/
+├── crews/
 ├── db/
 ├── embed/
 ├── mcp/
@@ -62,7 +63,7 @@ Acquisition lanes collect candidate evidence before ingestion.
 - `snapshots.py` writes raw source snapshots used for provenance.
 - `relevance.py` asks the relevance model whether a candidate should be ingested.
 
-Only acquisition should touch the internet. Retrieval should not browse.
+Acquisition is the normal internet-facing layer for permanent DB evidence. Competitive reports may also use Tavily for run-scoped validation/enrichment. Retrieval should not browse.
 
 ### `db/`
 
@@ -90,10 +91,30 @@ Embedding code.
 
 MCP server exposing retrieval tools.
 
-- `server.py` defines `search`, `get_competitor`, `compare_competitors`, `latest_updates`, and `coverage_status`.
+- `server.py` defines read-only retrieval and report-support tools, including `search`, `get_competitor`, `compare_competitors`, `latest_updates`, `coverage_status`, `coverage_matrix`, `find_evidence_gaps`, `get_source_detail`, `source_inventory`, `build_report_section_evidence`, `build_capability_evidence_matrix`, and `build_report_evidence_pack`.
 - The server uses streamable HTTP at `/mcp`.
 - Optional `MCP_SHARED_TOKEN` protects deployed/local HTTP access.
 - Host/origin validation is enabled through MCP transport security settings.
+
+Report-support MCP tools are DB-backed and do not browse. They batch evidence retrieval for report sections and product capabilities.
+
+### `crews/`
+
+CrewAI workflows and report-generation code.
+
+Current report package:
+
+- `crews/report/run.py` - command-line report entry point.
+- `crews/report/workflow.py` - EvidencePack, analyst draft, checker, and render orchestration.
+- `crews/report/evidence.py` - DB/Tavily evidence collection, batch MCP adapters, EvidencePack creation.
+- `crews/report/capabilities.py` - product catalog and capability evidence matrix logic.
+- `crews/report/strategy.py`, `market.py`, `product_feature.py`, `technical.py`, `buyer_field.py`, `scoring.py` - analyst prompt inputs, live model calls, parsers, and section conversion.
+- `crews/report/checker.py` - validation rules that block unsupported or unsafe report output.
+- `crews/report/renderer.py` - HTML, JSON, and PDF artifact rendering.
+- `crews/report/templates/` - Jinja templates for report presentation.
+- `crews/report/schemas.py` - Pydantic contracts for evidence, sections, scores, validation, and render results.
+
+Generated reports are written under `reports/<competitor-slug>/`.
 
 ### `retrieve/`
 
@@ -119,6 +140,20 @@ Current skills include:
 - `relevance-rubric`
 - `coverage-verdict`
 - `grounding-contract`
+- `neutral-ci-contract`
+- `report-db-retrieval`
+- `report-evidence-quality`
+- `report-extensive-web-search`
+- `report-targeted-validation`
+- `report-evidence-pack-builder`
+- `report-strategy-analyst`
+- `report-market-analyst`
+- `report-product-feature-analyst`
+- `report-technical-analyst`
+- `report-buyer-field-analyst`
+- `report-scoring-agent`
+- `report-checker`
+- `report-editor-auditor`
 
 Prompts should be changed here, not in Python code.
 
@@ -175,6 +210,9 @@ Run all tests:
 - Change deep-map collection behavior: `src/ci_engine/synthesize/deep_map.py` and acquisition lanes.
 - Change scope-closure behavior: `src/ci_engine/synthesize/close_coverage_scope.py` and `coverage_verdict.py`.
 - Change retrieval behavior: `src/ci_engine/retrieve/__init__.py` and repository vector-search functions.
+- Change report retrieval behavior: `src/ci_engine/mcp/server.py` and `src/ci_engine/crews/report/evidence.py`.
+- Change report analysis behavior: `src/ci_engine/skills/report-*/SKILL.md` and the matching `src/ci_engine/crews/report/*.py` parser/section module.
+- Change report presentation: `src/ci_engine/crews/report/templates/` and `src/ci_engine/crews/report/renderer.py`.
 - Change schema: `src/ci_engine/db/schema.sql`, then apply it to Cloud SQL.
 
 ## What Not To Change Casually
@@ -185,4 +223,3 @@ Run all tests:
 - Do not mark `absent` from missing search results.
 - Do not add web access to retrieval.
 - Do not bypass audit tables for DB healing/status changes.
-

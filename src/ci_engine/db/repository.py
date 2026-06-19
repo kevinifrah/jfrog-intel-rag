@@ -1295,6 +1295,150 @@ def latest_active_sources(
     ]
 
 
+def source_inventory(
+    *,
+    competitors: Sequence[str] | None = None,
+    dimensions: Sequence[str] | None = None,
+    status: str = "active",
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    if _empty_filter(competitors):
+        return []
+    if _empty_filter(dimensions):
+        return []
+
+    filters = ["s.status = :status"]
+    params: dict[str, Any] = {"status": status}
+    bindparams = []
+
+    if competitors is not None:
+        filters.append("s.competitor = ANY(:competitors)")
+        params["competitors"] = list(competitors)
+        bindparams.append(bindparam("competitors", type_=ARRAY(String())))
+
+    if dimensions is not None:
+        filters.append("s.dimension = ANY(:dimensions)")
+        params["dimensions"] = list(dimensions)
+        bindparams.append(bindparam("dimensions", type_=ARRAY(String())))
+
+    limit_clause = ""
+    if limit is not None:
+        limit_clause = "LIMIT :limit"
+        params["limit"] = max(int(limit), 0)
+
+    stmt = text(
+        f"""
+        SELECT
+            s.id AS source_id,
+            s.competitor,
+            s.axis,
+            s.doc_type,
+            s.dimension,
+            s.url,
+            s.title,
+            s.publish_date,
+            s.fetched_at,
+            s.source_kind,
+            s.raw_path,
+            count(DISTINCT c.id) AS chunk_count,
+            count(DISTINCT sc.id) AS citation_count
+        FROM sources s
+        LEFT JOIN chunks c
+          ON c.source_id = s.id
+         AND c.status = s.status
+        LEFT JOIN source_citations sc
+          ON sc.source_id = s.id
+        WHERE {" AND ".join(filters)}
+        GROUP BY
+            s.id, s.competitor, s.axis, s.doc_type, s.dimension, s.url,
+            s.title, s.publish_date, s.fetched_at, s.source_kind, s.raw_path
+        ORDER BY
+            s.competitor,
+            s.dimension NULLS LAST,
+            s.publish_date DESC NULLS LAST,
+            s.fetched_at DESC,
+            s.id DESC
+        {limit_clause}
+        """
+    )
+    if bindparams:
+        stmt = stmt.bindparams(*bindparams)
+
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(stmt, params).mappings().all()
+    except DatabaseError as exc:
+        if not _missing_source_citations_table(exc):
+            raise
+        with get_engine().connect() as conn:
+            rows = conn.execute(
+                _source_inventory_without_citations_stmt(filters, limit_clause, bindparams),
+                params,
+            ).mappings().all()
+
+    return [
+        {
+            "source_id": int(row["source_id"]),
+            "competitor": row["competitor"],
+            "axis": row["axis"],
+            "doc_type": row["doc_type"],
+            "dimension": row["dimension"],
+            "url": row["url"],
+            "title": row["title"],
+            "publish_date": row["publish_date"],
+            "fetched_at": row["fetched_at"],
+            "source_kind": row["source_kind"],
+            "raw_path": row["raw_path"],
+            "chunk_count": int(row["chunk_count"] or 0),
+            "citation_count": int(row.get("citation_count") or 0),
+        }
+        for row in rows
+    ]
+
+
+def _source_inventory_without_citations_stmt(
+    filters: Sequence[str],
+    limit_clause: str,
+    bindparams: Sequence[Any],
+) -> Any:
+    stmt = text(
+        f"""
+        SELECT
+            s.id AS source_id,
+            s.competitor,
+            s.axis,
+            s.doc_type,
+            s.dimension,
+            s.url,
+            s.title,
+            s.publish_date,
+            s.fetched_at,
+            s.source_kind,
+            s.raw_path,
+            count(DISTINCT c.id) AS chunk_count,
+            0 AS citation_count
+        FROM sources s
+        LEFT JOIN chunks c
+          ON c.source_id = s.id
+         AND c.status = s.status
+        WHERE {" AND ".join(filters)}
+        GROUP BY
+            s.id, s.competitor, s.axis, s.doc_type, s.dimension, s.url,
+            s.title, s.publish_date, s.fetched_at, s.source_kind, s.raw_path
+        ORDER BY
+            s.competitor,
+            s.dimension NULLS LAST,
+            s.publish_date DESC NULLS LAST,
+            s.fetched_at DESC,
+            s.id DESC
+        {limit_clause}
+        """
+    )
+    if bindparams:
+        stmt = stmt.bindparams(*bindparams)
+    return stmt
+
+
 def ensure_source_healing_audit() -> None:
     stmt = text(
         """

@@ -4,6 +4,7 @@ __pycache__/
 .env
 *.env
 raw_snapshots/
+reports/
 deep_map.log
 .claude/
 *.sqlite

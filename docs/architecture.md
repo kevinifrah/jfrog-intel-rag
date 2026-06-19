@@ -28,6 +28,9 @@ Coverage rollups
         |
         v
 Read-only retrieval and MCP tools
+        |
+        v
+Competitive report EvidencePack + CrewAI dossier generation
 ```
 
 ## Config And Ontology
@@ -57,7 +60,9 @@ Important design rule:
 
 ## Acquisition Lanes
 
-Acquisition finds candidate evidence. It is the only layer that should touch the internet.
+Acquisition finds candidate evidence for permanent ingestion and is the normal web-facing layer.
+
+Competitive report generation has a bounded exception: it can use Tavily for run-scoped enrichment and validation after DB retrieval. Those web findings are frozen into the report EvidencePack; normal retrieval still does not browse.
 
 ### Web Research Lane
 
@@ -358,8 +363,45 @@ Missing is reported only when dimensions are explicitly requested.
 - `compare_competitors`
 - `latest_updates`
 - `coverage_status`
+- `coverage_matrix`
+- `find_evidence_gaps`
+- `compare_dimension`
+- `get_source_detail`
+- `build_report_section_evidence`
+- `build_capability_evidence_matrix`
+- `build_report_evidence_pack`
+- `source_inventory`
 
 The server uses the same DB-backed retrieval principles. It does not browse at answer time.
+
+Report-specific MCP tools provide batch retrieval for dossiers:
+
+- `build_report_section_evidence` retrieves section-scoped DB evidence for all report sections in one structured pass.
+- `build_capability_evidence_matrix` retrieves capability-level product evidence for JFrog and one competitor in one structured pass.
+- `source_inventory` gives the report run an evidence census before analysis.
+
+These tools reduce repeated semantic query calls and make EvidencePack construction faster and more auditable.
+
+## Competitive Report Generator
+
+The report generator lives in `src/ci_engine/crews/report/`.
+
+It produces `JSON`, `HTML`, and `PDF` dossiers for `JFrog vs <competitor>`.
+
+High-level flow:
+
+1. Build a source inventory from active DB evidence.
+2. Retrieve broad section evidence through `build_report_section_evidence`.
+3. Retrieve capability/product evidence through `build_capability_evidence_matrix`.
+4. Use Tavily for broad web enrichment and targeted validation.
+5. Freeze an `EvidencePack`.
+6. Run CrewAI/Sonnet analyst sections.
+7. Run the Report Checker.
+8. Render HTML/PDF only after validation passes.
+
+The system fails closed: unsupported claims, unresolved contradictions, broken citations, or weak critical evidence block or flag rendering rather than producing a confident unreliable report.
+
+See [Report Generator](report-generator.md) for the detailed flow and commands.
 
 ## Healing And Backfill
 
@@ -396,4 +438,3 @@ The server uses the same DB-backed retrieval principles. It does not browse at a
 - refreshes rollups
 
 It does not mark absence from silence.
-

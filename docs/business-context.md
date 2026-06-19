@@ -32,6 +32,33 @@ The system is designed to answer questions such as:
 - Which analyst reports or customer proof points support positioning?
 - Which win/loss signals exist, and which are only generic market commentary?
 
+## Competitive Dossiers
+
+CI Engine can generate competitive dossiers such as `JFrog vs Sonatype`.
+
+The dossier is intended for business, technical, and field-facing use. It combines:
+
+- strategic thesis
+- company and market context
+- product and feature comparison
+- capability evidence matrix
+- technical/security analysis
+- buyer and field implications
+- weighted buyer scorecards
+- cited evidence appendix
+
+The report should not read like a list of sources. The CrewAI analyst agents synthesize from a frozen EvidencePack and cite their claims. Source inventories and raw evidence remain supporting material, not the main executive narrative.
+
+The dossier must stay neutral. Useful competitive intelligence identifies:
+
+- where JFrog wins
+- where JFrog loses or is pressured
+- where the competitor is strongest
+- where evidence is missing or weak
+- what actions follow for product, GTM, and field teams
+
+Unresolved gaps are part of the output. For example, if DB and web evidence are still weak for a capability, the report should show an evidence gap instead of pretending certainty.
+
 ## Competitor Universe
 
 The full tracked competitor list is configured in `src/ci_engine/config.yaml`:
@@ -223,4 +250,3 @@ A `partial_coverage` missing reason means some evidence exists but the system do
 - Marketplace or partner pages do not automatically prove technical support.
 - Internal vendor engineering pages can explain architecture, but may not prove customer-facing product coverage.
 - A single source can support multiple dimensions, but each dimension should still be evaluated on its own scope.
-

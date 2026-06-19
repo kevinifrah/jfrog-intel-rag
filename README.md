@@ -19,8 +19,8 @@ The core business use case is competitive intelligence for JFrog across software
 
 ## Core Principles
 
-- **The database is the source of truth.** Reports, chat, MCP tools, and retrieval read from Cloud SQL.
-- **Acquisition is the only layer that touches the internet.** Retrieval does not browse.
+- **The database is the primary source of truth.** Reports, chat, MCP tools, and retrieval read from Cloud SQL first.
+- **Web access is explicit and bounded.** Acquisition can browse for ingestible evidence, and report generation can use Tavily for run-scoped enrichment/validation. Retrieval does not browse.
 - **Every answer should be grounded in active stored evidence.** Stored chunks carry source URLs and provenance.
 - **Unknown is intentional.** Unknown means the system cannot safely say present, partial, planned, or absent.
 - **Absent requires explicit negative evidence.** No evidence is never enough to say a company does not cover something.
@@ -35,6 +35,7 @@ The core business use case is competitive intelligence for JFrog across software
 - [Architecture](docs/architecture.md) - data flow, DB schema, ontology, retrieval, and coverage status design.
 - [AI and Models](docs/ai-and-models.md) - what AI manages, which models are used, and what is deterministic.
 - [Operations](docs/operations.md) - setup, commands, safe rollout, and troubleshooting.
+- [Report Generator](docs/report-generator.md) - CrewAI competitive dossiers, EvidencePack flow, validation, and PDF/HTML/JSON outputs.
 
 ## Repository Map
 
@@ -54,6 +55,7 @@ Important packages:
 - `db/` - Cloud SQL connection, schema, repository functions, healing, and backfill CLIs.
 - `embed/` - Vertex AI / Gemini embedding client.
 - `mcp/` - MCP retrieval server and tools.
+- `crews/report/` - CrewAI-backed competitive report generator, schemas, analysts, checker, and renderer.
 - `retrieve/` - read-only retrieval API.
 - `skills/` - model prompts and instruction assets.
 - `synthesize/` - deep map, ingestion pipeline, synthesis, scope closure, and verdict logic.
@@ -90,6 +92,9 @@ Cloud SQL / pgvector
         |
         v
 Read-only retrieval + MCP tools
+        |
+        v
+EvidencePack + CrewAI competitive reports
 ```
 
 ## Quickstart
@@ -218,8 +223,46 @@ The server exposes tools including:
 - `compare_competitors`
 - `latest_updates`
 - `coverage_status`
+- `coverage_matrix`
+- `find_evidence_gaps`
+- `get_source_detail`
+- `compare_dimension`
+- `build_report_section_evidence`
+- `build_capability_evidence_matrix`
+- `build_report_evidence_pack`
+- `source_inventory`
 
 `search` accepts `dimensions`, so callers can scope retrieval to exact ontology dimensions.
+
+### Generate A Competitive Report
+
+Generate the full `JFrog vs Sonatype` dossier with DB evidence, Tavily validation, CrewAI/Sonnet analysis, HTML, JSON, and PDF:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitor Sonatype \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+Outputs are written to `reports/<competitor-slug>/`:
+
+- `report.json` - frozen `EvidencePack`, report draft, validation report, scores, and render metadata.
+- `report.html` - executive-grade readable dossier.
+- `report.pdf` - PDF rendering of the validated HTML report.
+
+The report generator fails closed. PDF rendering is blocked when validation fails. Weak or unresolved evidence appears as diagnostics or evidence gaps instead of confident unsupported claims.
+
+For a fast DB-only smoke test:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitor Sonatype \
+  --draft-mode deterministic \
+  --formats json,html \
+  --no-web \
+  --out-dir /private/tmp/ci-report-smoke
+```
 
 ### Heal Dimensions
 
@@ -314,6 +357,7 @@ AI is used during acquisition and ingestion, not as the source of truth at answe
 Current model configuration is in `src/ci_engine/config.yaml`:
 
 - Web research report generation: `claude-sonnet-4-6`
+- Competitive report agents: `claude-sonnet-4-6`
 - Report splitting: `claude-haiku-4-5`
 - Relevance scoring: `claude-haiku-4-5`
 - Ingestion synthesis: `claude-opus-4-8`
@@ -330,6 +374,9 @@ Deterministic code handles:
 - Rollup precedence
 - Retrieval filters
 - Conservative verdict guards
+- EvidencePack schema validation
+- Report checker gates
+- HTML/PDF/JSON rendering
 
 See [AI and Models](docs/ai-and-models.md) for details.
 
@@ -414,6 +461,22 @@ Implementation:
 
 Why: external clients can ask targeted questions without guessing internal filters.
 
+### CrewAI Competitive Reports
+
+Problem: a raw list of evidence sources is not a usable executive competitive-intelligence report.
+
+Implementation:
+
+- `src/ci_engine/crews/report/` builds `JFrog vs <competitor>` dossiers.
+- `EvidencePack` freezes DB evidence, Tavily validation, product catalog, capability matrix, gaps, and confidence metadata.
+- MCP `build_report_section_evidence` batches broad report section retrieval.
+- MCP `build_capability_evidence_matrix` batches product/capability retrieval.
+- CrewAI/Sonnet analyst agents synthesize Strategy, Market, Product/Feature, Technical, Buyer/Field, and Scoring sections.
+- `Report Checker` validates citations, neutrality, evidence coverage, contradictions, and raw artifact leakage before rendering.
+- The renderer writes `report.json`, `report.html`, and `report.pdf`.
+
+Why: reports need neutral, C-level-readable analysis while preserving auditability and failing closed when evidence is weak.
+
 ## Configuration
 
 `src/ci_engine/config.yaml` controls:
@@ -460,6 +523,7 @@ Run focused tests:
 .venv/bin/python -m pytest tests/test_retrieval.py
 .venv/bin/python -m pytest tests/test_coverage_verdict.py
 .venv/bin/python -m pytest tests/test_pipeline.py
+.venv/bin/python -m pytest tests/test_report_crew.py tests/test_mcp_server.py
 ```
 
 ## Safety Notes
@@ -470,4 +534,4 @@ Run focused tests:
 - Do not add prompt strings in Python modules. Use `skills/`.
 - Do not add model names outside `config.yaml`.
 - Do not add retrieval-time web access.
-
+- Do not let report agents write claims outside the frozen EvidencePack.

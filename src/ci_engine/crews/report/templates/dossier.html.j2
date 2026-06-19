@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>JFrog vs {{ draft.competitor }} Competitive Intelligence Dossier</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm;
+      @bottom-right { content: counter(page); color: #7a8580; font-size: 9px; }
+    }
+    :root {
+      --ink: #17211c;
+      --muted: #62716a;
+      --paper: #f7faf7;
+      --panel: #ffffff;
+      --line: #dfe9e2;
+      --jfrog: #40be46;
+      --jfrog-dark: #167b32;
+      --rival: #1d6fd6;
+      --warn: #b36b00;
+      --bad: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 12px/1.48 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 34px;
+    }
+    .hero {
+      min-height: 320px;
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 28px;
+      align-items: end;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 28px;
+    }
+    .eyebrow {
+      color: var(--jfrog-dark);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 12px 0 16px;
+      font-size: 42px;
+      line-height: 1.02;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 32px 0 12px;
+      font-size: 21px;
+      letter-spacing: 0;
+      break-after: avoid;
+    }
+    h3 {
+      margin: 14px 0 8px;
+      font-size: 14px;
+      letter-spacing: 0;
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .meta {
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.76);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .meta strong {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .status.ok { color: var(--jfrog-dark); }
+    .status.fail { color: var(--bad); }
+    .section {
+      break-inside: avoid;
+      padding: 6px 0 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .claim {
+      display: grid;
+      grid-template-columns: 5px 1fr;
+      gap: 12px;
+      margin: 10px 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .claim::before {
+      content: "";
+      background: var(--jfrog);
+    }
+    .claim-body { padding: 12px 14px; }
+    .claim-body p { margin: 0 0 8px; }
+    .cite {
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .scores {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .readiness-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin: 16px 0 8px;
+    }
+    .readiness-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      break-inside: avoid;
+    }
+    .readiness-card h3 {
+      margin-top: 0;
+      min-height: 34px;
+    }
+    .framework-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .framework-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      break-inside: avoid;
+    }
+    .framework-card strong {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .framework-card p {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .framework-count {
+      display: inline-block;
+      margin-top: 8px;
+      color: var(--jfrog-dark);
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .capability-summary {
+      display: grid;
+      grid-template-columns: .9fr 1.1fr;
+      gap: 16px;
+      align-items: start;
+      margin: 14px 0 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .capability-summary h3 {
+      margin-top: 0;
+    }
+    .advantage-bars {
+      display: grid;
+      gap: 9px;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 24px;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 10px;
+    }
+    .track {
+      height: 8px;
+      background: #e7efe9;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .track span {
+      display: block;
+      height: 100%;
+      border-radius: 999px;
+    }
+    .track .jfrog { background: var(--jfrog); }
+    .track .rival { background: var(--rival); }
+    .track .parity { background: #82918b; }
+    .track .unclear { background: #c5cec9; }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .pill-ready { color: var(--jfrog-dark); }
+    .pill-needs_review { color: var(--warn); }
+    .pill-weak { color: var(--bad); }
+    .mini {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      margin-top: 8px;
+    }
+    .score {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .bar {
+      height: 8px;
+      background: #e7efe9;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .bar span {
+      display: block;
+      height: 100%;
+      background: linear-gradient(90deg, var(--jfrog), var(--rival));
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      font-size: 10px;
+    }
+    th {
+      color: var(--muted);
+      text-transform: uppercase;
+      background: #f0f6f1;
+    }
+    .capability-table th:nth-child(2),
+    .capability-table td:nth-child(2) {
+      background: #fbfffb;
+    }
+    .capability-table th:nth-child(3),
+    .capability-table td:nth-child(3) {
+      background: #f8fbff;
+    }
+    .tradeoff-table th,
+    .tradeoff-table td,
+    .readout-table th,
+    .readout-table td {
+      font-size: 10px;
+      line-height: 1.42;
+    }
+    .tradeoff-table th:nth-child(2),
+    .tradeoff-table td:nth-child(2) {
+      background: #fbfffb;
+    }
+    .tradeoff-table th:nth-child(3),
+    .tradeoff-table td:nth-child(3) {
+      background: #f8fbff;
+    }
+    .readout-table td:first-child {
+      width: 22%;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .readout-table td:last-child {
+      width: 86px;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 9px;
+      font-weight: 800;
+    }
+    .assessment {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 7px;
+      font-size: 9px;
+      font-weight: 800;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .assessment-jfrog_advantage {
+      color: var(--jfrog-dark);
+      background: #e9f8eb;
+    }
+    .assessment-competitor_advantage {
+      color: #1157ad;
+      background: #eaf2ff;
+    }
+    .assessment-parity {
+      color: #4e6259;
+      background: #eef3f0;
+    }
+    .assessment-unclear {
+      color: var(--warn);
+      background: #fff5e6;
+    }
+    .finding-error { color: var(--bad); }
+    .finding-warning { color: var(--warn); }
+    .source-list a { color: var(--jfrog-dark); text-decoration: none; }
+    .small { color: var(--muted); font-size: 10px; }
+    @media (max-width: 820px) {
+      .page { padding: 22px; }
+      .hero { grid-template-columns: 1fr; min-height: auto; }
+      .framework-grid,
+      .readiness-grid,
+      .scores,
+      .capability-summary {
+        grid-template-columns: 1fr;
+      }
+      .bar-row {
+        grid-template-columns: 104px 1fr 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div>
+        <div class="eyebrow">JFrog Competitive Intelligence</div>
+        <h1>JFrog vs {{ draft.competitor }}</h1>
+        <p>Strategic business and technical dossier generated from validated evidence.</p>
+        <span class="status {{ 'ok' if validation.passed else 'fail' }}">
+          {{ 'Validation passed' if validation.passed else 'Validation blocked PDF' }}
+        </span>
+      </div>
+      <div class="meta-grid">
+        <div class="meta"><strong>Competitor</strong>{{ draft.competitor }}</div>
+        <div class="meta"><strong>Evidence Base</strong>{{ evidence_pack.items|length }} validated items</div>
+        <div class="meta"><strong>Validation</strong>{{ 'Passed' if validation.passed else 'Blocked' }}</div>
+        <div class="meta"><strong>Generated</strong>{{ draft.generated_at.date() }}</div>
+      </div>
+    </section>
+
+    {% if framework_cards %}
+    <section class="section">
+      <h2>Analysis Framework</h2>
+      <p class="small">Executive readout across the core competitive lenses.</p>
+      <div class="framework-grid">
+        {% for card in framework_cards %}
+        <article class="framework-card">
+          <strong>{{ card.title }}</strong>
+          <span class="small">{{ card.caption }}</span>
+          {% if card.summary %}
+          <p>{{ card.summary|report_text }}</p>
+          {% endif %}
+          <span class="framework-count">{{ card.claim_count }} cited points</span>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if comparison_rows %}
+    <section class="section">
+      <h2>Competitive Tradeoff Matrix</h2>
+      <table class="tradeoff-table">
+        <thead>
+          <tr>
+            <th>Lens</th>
+            <th>JFrog Edge</th>
+            <th>{{ draft.competitor }} Edge / Pressure</th>
+            <th>Executive Implication</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in comparison_rows %}
+          <tr>
+            <td>{{ row.lens }}</td>
+            <td>{{ row.jfrog|report_text }}</td>
+            <td>{{ row.competitor|report_text }}</td>
+            <td>{{ row.implication|report_text }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    {% if draft.metadata.show_diagnostics and evidence_pack.readiness %}
+    <section class="section">
+      <h2>Evidence Readiness</h2>
+      <p class="small">
+        Overall readiness: {{ evidence_pack.readiness.overall_score }} / 100.
+        {{ evidence_pack.readiness.notes|join(' ') }}
+      </p>
+      <div class="readiness-grid">
+        {% for section in evidence_pack.readiness.sections %}
+        <article class="readiness-card">
+          <h3>{{ section.title }}</h3>
+          <span class="pill pill-{{ section.status }}">{{ section.status|replace('_', ' ') }}</span>
+          <strong style="display:block;margin-top:8px;">{{ section.readiness_score }} / 100</strong>
+          {% for company in section.companies %}
+          <div class="mini">
+            <div><strong>{{ company.company }}</strong></div>
+            <div>{{ company.status|replace('_', ' ') }}</div>
+            <div>DB {{ company.db_items }}</div>
+            <div>Tavily {{ company.tavily_items }}</div>
+            <div>Primary {{ company.primary_items }}</div>
+            <div>Score {{ company.readiness_score }}</div>
+            <div>Sources {{ company.source_count }}</div>
+            <div>Gaps {{ company.gap_count }}</div>
+          </div>
+          {% endfor %}
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if draft.metadata.show_diagnostics and evidence_pack.inventory %}
+    <section class="section">
+      <h2>Source Inventory</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Company</th>
+            <th>Total</th>
+            <th>Dimensions</th>
+            <th>Primary Quality</th>
+            <th>Official/Vendor</th>
+            <th>Generated Reports</th>
+            <th>Newest</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for summary in evidence_pack.inventory.summaries %}
+          <tr>
+            <td>{{ summary.company }}</td>
+            <td>{{ summary.total_sources }}</td>
+            <td>{{ summary.active_dimensions }}</td>
+            <td>{{ summary.primary_quality_sources }}</td>
+            <td>{{ summary.official_or_vendor_sources }}</td>
+            <td>{{ summary.generated_report_sources }}</td>
+            <td>{{ summary.newest_published or 'n/a' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    {% for section in sections %}
+    <section class="section">
+      {% set matrix = section.metadata.get('capability_matrix') %}
+      {% set readout_rows = section_readouts.get(section.id, []) %}
+      <h2>{{ section.title }}</h2>
+      {% if section.agent_name %}
+      <p class="small">{{ section.agent_name }}</p>
+      {% endif %}
+      {% if section.narrative %}
+      <p class="small">{{ section.narrative|report_text }}</p>
+      {% endif %}
+      {% if readout_rows %}
+      <table class="readout-table">
+        <thead>
+          <tr><th>Readout</th><th>Analysis</th><th>Confidence</th></tr>
+        </thead>
+        <tbody>
+        {% for row in readout_rows %}
+          <tr>
+            <td>{{ row.label }}</td>
+            <td>{{ row.text|report_text }}</td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if section.id == 'product_feature_analysis' and product_catalog_rows %}
+      <h3>Product Catalog</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Vendor</th>
+            <th>Product</th>
+            <th>Category</th>
+            <th>Primary Role</th>
+            <th>Mapped Capabilities</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in product_catalog_rows %}
+          <tr>
+            <td>{{ row.company }}</td>
+            <td>{{ row.product_name|report_text }}</td>
+            <td>{{ row.category|report_text }}</td>
+            <td>{{ row.primary_role|report_text }}</td>
+            <td>{{ row.capabilities|report_text }}</td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if section.id == 'product_feature_analysis' and capability_summary %}
+      <div class="capability-summary">
+        <div>
+          <h3>Capability Readout</h3>
+          <p class="small">Direction of advantage across the cited product matrix.</p>
+        </div>
+        <div class="advantage-bars">
+          {% for row in capability_summary %}
+          <div class="bar-row">
+            <span>{{ row.label }}</span>
+            <div class="track">
+              <span class="{{ row.class }}" style="width: {{ row.width }}%"></span>
+            </div>
+            <strong>{{ row.count }}</strong>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      {% if section.id == 'product_feature_analysis' and (product_advantage_rows.jfrog or product_advantage_rows.competitor) %}
+      <h3>Where Each Vendor Pressures The Other</h3>
+      <table class="tradeoff-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>JFrog Product Read</th>
+            <th>{{ draft.competitor }} Product Read</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in product_advantage_rows.jfrog %}
+          <tr>
+            <td>{{ row.capability|report_text }}</td>
+            <td>{{ row.jfrog|report_text }}</td>
+            <td>{{ row.competitor|report_text }}</td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        {% for row in product_advantage_rows.competitor %}
+          <tr>
+            <td>{{ row.capability|report_text }}</td>
+            <td>{{ row.jfrog|report_text }}</td>
+            <td>{{ row.competitor|report_text }}</td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if matrix %}
+      <table class="capability-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>JFrog</th>
+            <th>{{ draft.competitor }}</th>
+            <th>Read</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in matrix %}
+          <tr>
+            <td>{{ row.capability|report_text }}</td>
+            <td>{{ row.jfrog|report_text }}</td>
+            <td>{{ row.competitor|report_text }}</td>
+            <td><span class="assessment assessment-{{ row.assessment }}">{{ row.assessment|replace('_', ' ') }}</span></td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <h3>Implications</h3>
+      {% endif %}
+      {% if section.id == 'product_feature_analysis' and capability_gap_rows %}
+      <h3>Critical Unresolved Evidence Gaps</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>JFrog Search Result</th>
+            <th>{{ draft.competitor }} Search Result</th>
+            <th>Readout</th>
+            <th>Confidence</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for row in capability_gap_rows %}
+          <tr>
+            <td>{{ row.capability|report_text }}</td>
+            <td>{{ row.jfrog_status|replace('_', ' ') }}</td>
+            <td>{{ row.competitor_status|replace('_', ' ') }}</td>
+            <td>{{ row.readout|replace('_', ' ') }}</td>
+            <td>{{ row.confidence }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+      {% if readout_rows or matrix %}
+      <h3>Supporting Analysis</h3>
+      {% endif %}
+      {% for claim in section.claims %}
+      <article class="claim">
+        <div class="claim-body">
+          <p>{{ claim.text|report_text }}</p>
+        </div>
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+
+    {% if scores %}
+    <section class="section">
+      <h2>Weighted Buyer Scorecards</h2>
+      <div class="scores">
+        {% for score in scores %}
+        <article class="score">
+          <h3>{{ score.company }} - {{ score.category }}</h3>
+          {% if score.buyer_archetype %}
+          <p class="small">{{ score.buyer_archetype|report_text }}</p>
+          {% endif %}
+          <div class="bar"><span style="width: {{ (score.value / score.max_value * 100)|round(0) }}%"></span></div>
+          <strong>{{ score.value }} / {{ score.max_value }}</strong>
+          <p>{{ score.rationale|report_text }}</p>
+          <p class="small">Confidence: {{ score.confidence }} · Weight: {{ (score.weight * 100)|round(0) }}%</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if draft.metadata.show_diagnostics %}
+    <section class="section">
+      <h2>Report Checker</h2>
+      <table>
+        <thead><tr><th>Severity</th><th>Code</th><th>Message</th></tr></thead>
+        <tbody>
+        {% for finding in validation.findings %}
+          <tr>
+            <td class="finding-{{ finding.severity }}">{{ finding.severity }}</td>
+            <td>{{ finding.code }}</td>
+            <td>{{ finding.message }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="3">No findings.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+    {% endif %}
+
+    <section class="section source-list">
+      <h2>Cited Sources</h2>
+      <table>
+        <thead>
+          <tr><th>#</th><th>Company</th><th>Section</th><th>Citation</th><th>Date</th></tr>
+        </thead>
+        <tbody>
+        {% for item in cited_evidence %}
+          <tr>
+            <td>{{ loop.index }}</td>
+            <td>{{ item.company }}</td>
+            <td>{{ item.report_section }}</td>
+            <td>{{ item.citation }}</td>
+            <td>{{ item.date }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

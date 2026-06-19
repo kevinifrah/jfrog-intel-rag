@@ -22,8 +22,9 @@ AI is used earlier in the pipeline:
 - synthesizing raw source text into compiled evidence
 - classifying targeted coverage gaps
 - embedding documents and queries
+- generating validated competitive report sections from a frozen EvidencePack
 
-The database remains the source of truth.
+The database remains the primary source of truth. Report generation may attach run-scoped Tavily evidence for enrichment and validation, but that evidence is frozen into the EvidencePack and cited like any other report evidence.
 
 ## AI-Managed Components
 
@@ -160,6 +161,33 @@ Purpose:
 
 Embeddings are created through Vertex AI, using ADC rather than a committed API key.
 
+### Competitive Report Agents
+
+Config:
+
+- `models.report.name`: `claude-sonnet-4-6`
+- temperature: `0.3`
+- thinking: `high`
+- max tokens: report modules default to `6000` unless overridden
+- timeout: report modules default to `180` seconds unless overridden
+
+Code:
+
+- `src/ci_engine/crews/report/`
+- skills in `src/ci_engine/skills/report-*/SKILL.md`
+- shared neutrality skill: `src/ci_engine/skills/neutral-ci-contract/SKILL.md`
+- shared grounding skill: `src/ci_engine/skills/grounding-contract/SKILL.md`
+
+Purpose:
+
+- synthesize executive competitive-intelligence analysis from a frozen EvidencePack
+- produce market, product/feature, technical, buyer/field, and scoring sections
+- keep all claims cited to EvidencePack IDs
+- surface JFrog strengths, JFrog weaknesses, competitor strengths, uncertainty, and action implications
+- fail closed when claims are unsupported or output is invalid
+
+The report generator can use Tavily during EvidencePack construction for public web enrichment and targeted validation. Tavily findings are captured as report-run evidence and do not become permanent DB evidence unless explicitly ingested later.
+
 ## Deterministic Components
 
 The following are controlled by code and config, not by model judgment.
@@ -264,7 +292,21 @@ Current skills:
 - `deep-report-splitter`
 - `grounding-contract`
 - `ingest-synthesis`
+- `neutral-ci-contract`
 - `relevance-rubric`
+- `report-db-retrieval`
+- `report-evidence-quality`
+- `report-extensive-web-search`
+- `report-targeted-validation`
+- `report-evidence-pack-builder`
+- `report-strategy-analyst`
+- `report-market-analyst`
+- `report-product-feature-analyst`
+- `report-technical-analyst`
+- `report-buyer-field-analyst`
+- `report-scoring-agent`
+- `report-checker`
+- `report-editor-auditor`
 
 To change model behavior, edit these skill files and update tests. Do not hide prompt behavior in Python strings.
 
@@ -284,4 +326,3 @@ If AI output is weak, invalid, low-confidence, or out of scope:
 - preserve audit details
 
 Do not guess. Do not delete evidence. Do not mark absence from missing data.
-
