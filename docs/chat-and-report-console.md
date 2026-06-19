@@ -32,15 +32,15 @@ Host and port live in `src/ci_engine/config.yaml`:
 
 ## UI Layout
 
-The console has three working areas:
+The console is an editorial two-pane reading environment.
 
-- left: competitor selector
-- center: selected HTML report viewer
-- right: executive Q&A scoped to the selected competitor/report by default
+- **Left index**: typeset competitor list with hairline dividers; active competitor is marked with a quiet rule. No dropdown, no colored status pills.
+- **Reading surface**: the selected dossier fills the main area as an iframe. A thin reader header above it shows the competitor name, quiet meta (generated date, validation status), and a Download PDF button.
+- **Ask FAB**: a fixed "Ask" button opens an off-canvas chat drawer from the right. A scrim covers the dossier while the drawer is open. `Esc` or clicking the scrim closes it.
 
 PDF behavior:
 
-- available PDF: the download button links to `reports/<slug>/report.pdf`
+- available PDF: the Download PDF button links to `reports/<slug>/report.pdf`
 - unavailable PDF: the UI shows a plain-language explanation of what evidence still needs work
 - missing PDF: the download button is disabled
 
@@ -121,10 +121,10 @@ Source links are shown only when useful, such as web-validated answers, low-conf
 Configured in `src/ci_engine/config.yaml`:
 
 - `models.chat_planner.name`: `claude-haiku-4-5`
-- `models.chat_answer.name`: `claude-haiku-4-5`
+- `models.chat_answer.name`: `claude-sonnet-4-6`
 - `models.chat_fallback.name`: `claude-sonnet-4-6`
 
-Haiku is the default for speed and cost. Sonnet fallback is used when the plan marks a question as complex, or when grounding fails and a stronger reasoning pass is justified.
+Haiku handles retrieval planning (speed, cost). Sonnet writes the answer (grounding precision, answer quality). The fallback path also uses Sonnet when the plan marks a question as complex or when a grounding failure requires a stronger reasoning pass.
 
 ## Storage Decision
 

@@ -264,7 +264,7 @@ Chat retrieval:
 Chat model defaults:
 
 - planner: `models.chat_planner.name`, currently `claude-haiku-4-5`
-- answer writer: `models.chat_answer.name`, currently `claude-haiku-4-5`
+- answer writer: `models.chat_answer.name`, currently `claude-sonnet-4-6`
 - fallback: `models.chat_fallback.name`, currently `claude-sonnet-4-6`
 
 ## Competitive Reports
@@ -533,6 +533,7 @@ Focused tests:
 .venv/bin/python -m pytest tests/test_pipeline.py
 .venv/bin/python -m pytest tests/test_heal_dimensions.py tests/test_heal_coverage_status.py
 .venv/bin/python -m pytest tests/test_report_crew.py tests/test_mcp_server.py
+.venv/bin/python -m pytest tests/test_chat.py tests/test_ui.py
 ```
 
 ## Troubleshooting

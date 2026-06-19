@@ -185,6 +185,12 @@ Current skills include:
 - `report-extensive-web-search`
 - `report-targeted-validation`
 - `report-evidence-pack-builder`
+- `report-market-cross-report`
+- `report-framework-pestel`
+- `report-framework-five-forces`
+- `report-framework-positioning-map`
+- `report-framework-swot`
+- `report-confidence-tiering`
 - `report-strategy-analyst`
 - `report-market-analyst`
 - `report-product-feature-analyst`

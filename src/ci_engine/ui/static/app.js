@@ -3,98 +3,107 @@ const state = {
   selected: null,
 };
 
-const reportSelect = document.querySelector("#report-select");
-const reportSelectHelp = document.querySelector("#report-select-help");
-const selectedReportCard = document.querySelector("#selected-report-card");
+const competitorIndex = document.querySelector("#competitor-index");
 const reportFrame = document.querySelector("#report-frame");
-const selectedTitle = document.querySelector("#selected-title");
-const selectedStatus = document.querySelector("#selected-status");
+const readerTitle = document.querySelector("#reader-title");
+const readerStatus = document.querySelector("#reader-status");
 const pdfLink = document.querySelector("#pdf-link");
 const pdfBlocker = document.querySelector("#pdf-blocker");
+const askOpen = document.querySelector("#ask-open");
+const askClose = document.querySelector("#ask-close");
+const chatClear = document.querySelector("#chat-clear");
+const scrim = document.querySelector("#scrim");
+const drawer = document.querySelector("#chat-drawer");
 const chatLog = document.querySelector("#chat-log");
 const chatForm = document.querySelector("#chat-form");
 const chatInput = document.querySelector("#chat-input");
 
 document.querySelector("#refresh-reports").addEventListener("click", loadReports);
-reportSelect.addEventListener("change", () => selectReport(reportSelect.value));
+askOpen.addEventListener("click", openDrawer);
+askClose.addEventListener("click", closeDrawer);
+chatClear.addEventListener("click", clearChat);
+scrim.addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && drawer.classList.contains("open")) closeDrawer();
+});
 chatForm.addEventListener("submit", submitChat);
 
 loadReports();
 
 async function loadReports() {
-  const previousSlug = state.selected?.slug || reportSelect.value;
-  reportSelect.disabled = true;
-  reportSelect.innerHTML = '<option value="">Loading competitors...</option>';
-  selectedReportCard.textContent = "";
+  const previousSlug = state.selected?.slug || null;
+  competitorIndex.innerHTML = '<li class="ledger-empty">Loading&hellip;</li>';
   const response = await fetch("/api/reports");
   const payload = await response.json();
   state.reports = payload.reports || [];
-  renderReportSelect();
+  renderIndex();
   const preferred = state.reports.find((report) => report.slug === previousSlug) || state.reports[0];
-  if (preferred) {
-    selectReport(preferred.slug);
-  }
+  if (preferred) selectReport(preferred.slug);
 }
 
-function renderReportSelect() {
-  reportSelect.innerHTML = "";
+function renderIndex() {
+  competitorIndex.innerHTML = "";
   if (!state.reports.length) {
-    reportSelect.disabled = true;
-    reportSelect.innerHTML = '<option value="">No competitor dossiers found</option>';
-    reportSelectHelp.textContent = "No generated reports are available yet.";
+    competitorIndex.innerHTML = '<li class="ledger-empty">No dossiers available yet.</li>';
     return;
   }
-  reportSelect.disabled = false;
-  reportSelectHelp.textContent = `${state.reports.length} competitor dossiers available. Validated reports appear first.`;
-  appendReportGroup("Validated", state.reports.filter((report) => report.validation_passed));
-  appendReportGroup("Review drafts", state.reports.filter((report) => !report.validation_passed));
-}
+  for (const report of state.reports) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ledger-item";
+    button.dataset.slug = report.slug;
 
-function appendReportGroup(label, reports) {
-  if (!reports.length) return;
-  const group = document.createElement("optgroup");
-  group.label = label;
-  for (const report of reports) {
-    const option = document.createElement("option");
-    option.value = report.slug;
-    option.textContent = optionLabel(report);
-    group.appendChild(option);
+    const name = document.createElement("span");
+    name.className = "ledger-name";
+    name.textContent = report.competitor || report.title || report.slug;
+    button.appendChild(name);
+
+    if (!report.validation_passed) {
+      const flag = document.createElement("span");
+      flag.className = "ledger-flag";
+      flag.textContent = "in review";
+      button.appendChild(flag);
+    }
+
+    button.addEventListener("click", () => selectReport(report.slug));
+    item.appendChild(button);
+    competitorIndex.appendChild(item);
   }
-  reportSelect.appendChild(group);
 }
 
-function optionLabel(report) {
-  const status = report.validation_passed ? "Validated" : "Needs review";
-  const pdf = report.pdf_available ? "PDF ready" : "PDF not ready";
-  return `${report.competitor || report.title || report.slug} - ${status} - ${pdf}`;
+function markActive(slug) {
+  for (const button of competitorIndex.querySelectorAll(".ledger-item")) {
+    button.classList.toggle("active", button.dataset.slug === slug);
+  }
 }
 
 function selectReport(slug) {
   const report = state.reports.find((item) => item.slug === slug);
   if (!report) return;
   state.selected = report;
-  reportSelect.value = report.slug;
-  selectedTitle.textContent = report.title || `JFrog vs ${report.competitor}`;
-  selectedStatus.textContent = `${report.executive_status_label || "Review draft available"} · ${formatDate(report.generated_at)}`;
-  reportFrame.src = `/reports/${report.slug}/html?viewer=1&t=${Date.now()}`;
-  renderSelectedReportCard(report);
+  markActive(slug);
+
+  readerTitle.textContent = report.title || `JFrog vs ${report.competitor}`;
+  readerStatus.textContent = `${report.executive_status_label || "Draft available"} · ${formatDate(report.generated_at)}`;
+  reportFrame.src = `/reports/${report.slug}/html?t=${Date.now()}`;
 
   if (report.pdf_available) {
     pdfLink.classList.remove("disabled");
     pdfLink.href = `/reports/${report.slug}/pdf`;
     pdfLink.setAttribute("aria-disabled", "false");
-    pdfLink.textContent = report.pdf_label || "Download PDF";
+    pdfLink.textContent = "Download PDF";
     pdfBlocker.classList.add("hidden");
     pdfBlocker.textContent = "";
   } else {
     pdfLink.classList.add("disabled");
     pdfLink.href = "#";
     pdfLink.setAttribute("aria-disabled", "true");
-    pdfLink.textContent = report.pdf_label || "PDF not ready yet";
+    pdfLink.textContent = "PDF not ready";
     pdfBlocker.classList.remove("hidden");
     pdfBlocker.innerHTML = "";
     const summary = document.createElement("strong");
-    summary.textContent = report.readiness_summary || "The report is available for review, but the PDF is not ready yet.";
+    summary.textContent = report.readiness_summary || "This dossier is available to read; the PDF is not ready yet.";
     const detail = document.createElement("p");
     detail.textContent = report.readiness_detail || "";
     const action = document.createElement("p");
@@ -104,20 +113,21 @@ function selectReport(slug) {
   }
 }
 
-function renderSelectedReportCard(report) {
-  selectedReportCard.innerHTML = "";
-  const title = document.createElement("strong");
-  title.textContent = report.competitor || report.title || report.slug;
-  const meta = document.createElement("div");
-  meta.className = "row-meta";
-  meta.appendChild(statusPill(report.validation_passed ? "Validated" : "Needs review", report.validation_passed ? "ready" : "review"));
-  meta.appendChild(statusPill(report.pdf_available ? "PDF ready" : report.pdf_label || "PDF not ready yet", report.pdf_available ? "ready" : "review"));
-  const date = document.createElement("span");
-  date.textContent = formatDate(report.generated_at);
-  meta.appendChild(date);
-  const summary = document.createElement("p");
-  summary.textContent = report.readiness_summary || "";
-  selectedReportCard.append(title, meta, summary);
+function openDrawer() {
+  drawer.classList.add("open");
+  drawer.setAttribute("aria-hidden", "false");
+  scrim.classList.remove("hidden");
+  chatInput.focus();
+}
+
+function closeDrawer() {
+  drawer.classList.remove("open");
+  drawer.setAttribute("aria-hidden", "true");
+  scrim.classList.add("hidden");
+}
+
+function clearChat() {
+  chatLog.innerHTML = "";
 }
 
 async function submitChat(event) {
@@ -126,7 +136,7 @@ async function submitChat(event) {
   if (!question) return;
   appendMessage("user", question);
   chatInput.value = "";
-  const waiting = appendMessage("assistant", "Retrieving evidence...");
+  const waiting = appendMessage("assistant", "Retrieving evidence…");
   const response = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -178,18 +188,43 @@ function appendMessage(role, text) {
   wrapper.className = `message ${role}`;
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+  if (role === "assistant") {
+    bubble.innerHTML = renderMarkdown(text);
+  } else {
+    bubble.textContent = text;
+  }
   wrapper.appendChild(bubble);
   chatLog.appendChild(wrapper);
   chatLog.scrollTop = chatLog.scrollHeight;
   return wrapper;
 }
 
-function statusPill(text, tone) {
-  const span = document.createElement("span");
-  span.className = `status-pill ${tone || ""}`;
-  span.textContent = text;
-  return span;
+function renderMarkdown(text) {
+  const escaped = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  return escaped
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    // Italic
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
+    // Bullet lists: consecutive lines starting with "- " or "* "
+    .replace(/((?:^[-*] .+\n?)+)/gm, (block) => {
+      const items = block.trim().split("\n").map((line) =>
+        `<li>${line.replace(/^[-*] /, "")}</li>`
+      ).join("");
+      return `<ul>${items}</ul>`;
+    })
+    // Paragraphs: double newline → paragraph break
+    .replace(/\n{2,}/g, "</p><p>")
+    // Single newline inside a paragraph
+    .replace(/\n/g, "<br>")
+    .replace(/^/, "<p>")
+    .replace(/$/, "</p>")
+    // Clean up empty paragraphs wrapping block elements
+    .replace(/<p>(<ul>)/g, "$1")
+    .replace(/(<\/ul>)<\/p>/g, "$1");
 }
 
 function formatDate(value) {

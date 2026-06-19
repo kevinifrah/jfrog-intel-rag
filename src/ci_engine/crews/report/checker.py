@@ -24,7 +24,7 @@ SOURCE_LIST_PROSE_PATTERNS = (
 )
 _EVIDENCE_ID_RE = re.compile(r"\[[a-f0-9]{12,40}\]", re.IGNORECASE)
 _SOURCE_NUMBER_RE = re.compile(r"\[(?:\d{1,2})(?:\s*,\s*\d{1,2})*\]")
-_AUDIT_LABEL_RE = re.compile(r"(^|\s)(?:evidence|source|sources)\s*:", re.IGNORECASE)
+_AUDIT_LABEL_RE = re.compile(r"^\s*(?:[-*•·]\s*)?(?:evidence|sources?)\s*:", re.IGNORECASE | re.MULTILINE)
 
 FULL_CREW_SCORING_MODE = "crew_strategy_market_product_technical_field_scoring"
 STRATEGY_MODES = {
@@ -1153,10 +1153,20 @@ def _is_missing_market_share_statement(text: str) -> bool:
         "not established",
         "not present",
         "unavailable",
+        "not available",
         "insufficient evidence",
         "limiting the ability to quantify",
         "cannot be quantified",
         "avoids inferring",
+        "no independently",        # "no independently validated/verified ... market share"
+        "no independent",          # "no independent analyst ... market share"
+        "limits confidence",       # "limits confidence in any claim about market share"
+        "carries meaningful uncertainty",
+        "carries uncertainty",
+        "carries material uncertainty",  # "market share claims carry material uncertainty"
+        "carry material uncertainty",
+        "carry meaningful uncertainty",
+        "material uncertainty",
     )
     return "market share" in text and any(marker in text for marker in missing_markers)
 

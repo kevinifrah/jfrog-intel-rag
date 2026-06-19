@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Sequence
 from typing import Any
+
+_log = logging.getLogger(__name__)
 
 from ci_engine.chat.schemas import (
     ChatAnswer,
@@ -210,6 +213,7 @@ def _run_answer(
         payload = parse_json_object(raw if isinstance(raw, str) else json.dumps(raw), label="chat answer")
         return ChatAnswer.model_validate(payload)
     except Exception as exc:
+        _log.warning("chat answer runner failed, using deterministic fallback: %s", exc)
         return _deterministic_answer(
             evidence,
             used_tools=used_tools,
@@ -440,7 +444,11 @@ def _answer_output_config() -> dict[str, Any]:
                     "followups": {"type": "array", "items": {"type": "string"}},
                     "metadata": {
                         "type": "object",
-                        "properties": {},
+                        "properties": {
+                            "mode": {"type": "string"},
+                            "answer_style": {"type": "string"},
+                            "evidence_quality": {"type": "string"},
+                        },
                         "additionalProperties": False,
                     },
                 },

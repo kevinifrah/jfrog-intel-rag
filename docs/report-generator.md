@@ -162,11 +162,18 @@ Every agent loads its instructions from `src/ci_engine/skills/*/SKILL.md`.
 Current report skills:
 
 - `neutral-ci-contract`
+- `grounding-contract`
 - `report-db-retrieval`
 - `report-evidence-quality`
 - `report-extensive-web-search`
 - `report-targeted-validation`
 - `report-evidence-pack-builder`
+- `report-market-cross-report` — composed first by the Market Analyst; enforces canonical positioning-map axes and Five Forces baselines across all dossiers
+- `report-framework-pestel` — PESTEL factor instructions
+- `report-framework-five-forces` — Porter's Five Forces instructions
+- `report-framework-positioning-map` — positioning map layout instructions
+- `report-framework-swot` — SWOT instructions
+- `report-confidence-tiering` — claim confidence-tier definitions
 - `report-strategy-analyst`
 - `report-market-analyst`
 - `report-product-feature-analyst`
@@ -268,7 +275,49 @@ Common blocker codes:
 - `unresolved_web_contradiction` - Tavily evidence contradicts DB evidence and needs resolution.
 - `product_feature_generation_failed` - the Product/Feature analyst returned output that failed strict JSON or CI-synthesis checks.
 - `missing_product_feature_matrix` - Product/Feature mode lacks the required cited capability matrix.
-- `unsupported_market_share_claim` - a claim mentions market share without cited market-share evidence or a missing-data caveat.
+- `unsupported_market_share_claim` - a claim asserts a specific market-share figure without cited evidence. Claims that explicitly acknowledge the absence of verified data (e.g. "no independently verified data available", "carries material uncertainty") are accepted and do not trigger this error.
+
+## Cross-Report Consistency
+
+Market-level frameworks that do not change between competitors are standardized so all dossiers are directly comparable.
+
+### Canonical Positioning Map Axes
+
+All reports use the same X and Y axis labels:
+
+- `x_axis_label`: "Supply-chain coverage breadth"
+  - low: "Single ecosystem / one workflow"
+  - high: "Universal repository + full SDLC"
+- `y_axis_label`: "Security specialization depth"
+  - low: "Platform with security add-ons"
+  - high: "Purpose-built security toolchain"
+
+These are defined in `report-market-cross-report/SKILL.md` and enforced by `market.py`. Do not invent different axes in a skill or prompt.
+
+### Canonical PESTEL Factor Text
+
+The `factor` text for each PESTEL dimension describes the market-level driver and is identical across all reports. Only the `implication` text (the competitor-specific impact) is written per-report.
+
+Canonical factor descriptions:
+
+- **Political**: US Executive Order 14028, EU Cyber Resilience Act, and government SBOM mandates create regulatory tailwinds for software supply chain security investment.
+- **Economic**: Platform consolidation pressure drives enterprises to reduce vendor count; buyers evaluate security tooling as part of broader DevSecOps platform decisions.
+- **Social**: Developer-centric security culture (shift-left) is mainstream; OSS adoption normalises dependency risk and drives demand for integrated governance tooling.
+- **Technological**: AI/ML model deployment and agentic pipelines expand the software artifact supply chain, creating new governance and security requirements beyond traditional SCA.
+- **Environmental**: Environmental factors are not a material driver in the software supply chain security market.
+- **Legal**: EU Cyber Resilience Act and US EO 14028 impose software transparency and SBOM obligations on vendors and buyers, accelerating compliance-led purchasing.
+
+### Five Forces Baselines
+
+Market-level intensity baselines are fixed across all dossiers:
+
+- competitive rivalry: high
+- threat of new entrants: moderate
+- threat of substitutes: moderate
+- buyer power: high
+- supplier power: low
+
+These baselines come from `report-market-cross-report/SKILL.md`. Per-competitor driver descriptions and implications remain analyst-written.
 
 ## Output Files
 
@@ -410,25 +459,6 @@ write_report_artifacts(
 )
 PY
 ```
-
-## Latest Sonatype Artifact Status
-
-At the time of this documentation update, the generated `JFrog vs Sonatype` dossier uses:
-
-- section retrieval: `batch`
-- capability retrieval: `batch`
-- DB evidence: `184`
-- Tavily evidence: `179`
-- total evidence: `363`
-- validation: passed
-- scores: `8`
-
-Remaining evidence-gap warnings are around:
-
-- JFrog package firewall/admission evidence
-- JFrog reachability analysis evidence
-
-These warnings are intentional. They keep the report neutral by preventing missing evidence from becoming a fake win/loss conclusion.
 
 ## Tests
 

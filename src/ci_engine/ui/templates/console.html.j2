@@ -4,57 +4,74 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ title }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260619-report-viewer-2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="icon" href="{{ url_for('static', path='/jfrog-logo.svg') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260619-editorial-2">
   </head>
   <body>
-    <main class="shell">
-      <aside class="report-rail" aria-label="Reports">
-        <header class="rail-header">
-          <div>
-            <p class="eyebrow">Competitive Intelligence</p>
-            <h1>Select Competitor</h1>
-          </div>
-          <button id="refresh-reports" class="icon-button" type="button" title="Refresh reports" aria-label="Refresh reports">&#8635;</button>
-        </header>
-        <div class="competitor-picker">
-          <label for="report-select">Competitor</label>
-          <select id="report-select" aria-describedby="report-select-help">
-            <option value="">Loading competitors...</option>
-          </select>
-          <p id="report-select-help" class="picker-help">Validated reports appear first.</p>
-          <div id="selected-report-card" class="selected-report-card" aria-live="polite"></div>
+    <header class="masthead">
+      <a class="brand" href="/" aria-label="JFrog Competitive Intelligence">
+        <img class="brand-logo" src="{{ url_for('static', path='/jfrog-logo.svg') }}" alt="JFrog" height="26">
+        <span class="brand-sep" aria-hidden="true"></span>
+        <span class="brand-label">Competitive Intelligence</span>
+      </a>
+      <p class="masthead-note">Cited dossiers on JFrog &amp; its competitors</p>
+    </header>
+
+    <main class="workspace">
+      <aside class="index" aria-label="Competitors">
+        <div class="index-head">
+          <h1>Competitors</h1>
+          <button id="refresh-reports" class="ghost-btn" type="button" title="Refresh" aria-label="Refresh">&#8635;</button>
         </div>
+        <ol id="competitor-index" class="ledger">
+          <li class="ledger-empty">Loading&hellip;</li>
+        </ol>
       </aside>
 
-      <section class="viewer-panel" aria-label="Selected report">
-        <header class="viewer-toolbar">
-          <div class="selected-copy">
-            <p id="selected-status" class="eyebrow">Choose a competitor</p>
-            <h2 id="selected-title">Competitive dossier</h2>
+      <section class="reader" aria-label="Dossier">
+        <header class="reader-head">
+          <div class="reader-id">
+            <p id="reader-status" class="reader-status">Choose a competitor</p>
+            <h2 id="reader-title">Competitive dossier</h2>
           </div>
-          <a id="pdf-link" class="download-button disabled" href="#" aria-disabled="true">Download PDF</a>
+          <a id="pdf-link" class="btn disabled" href="#" aria-disabled="true">Download PDF</a>
         </header>
-        <div id="pdf-blocker" class="status-banner hidden"></div>
-        <iframe id="report-frame" title="Report viewer"></iframe>
+        <div id="pdf-blocker" class="banner hidden"></div>
+        <iframe id="report-frame" class="dossier" title="Dossier"></iframe>
       </section>
-
-      <aside class="chat-panel" aria-label="Report chat">
-        <header class="chat-header">
-          <div>
-            <p class="eyebrow">Executive Q&A</p>
-            <h2>Ask About The Competitor</h2>
-          </div>
-        </header>
-        <div id="chat-log" class="chat-log" aria-live="polite"></div>
-        <form id="chat-form" class="chat-form">
-          <textarea id="chat-input" rows="3" placeholder="Ask about positioning, product strengths, weaknesses, risks, or what JFrog should do next."></textarea>
-          <div class="chat-actions">
-            <span class="chat-note">Answers use the latest trusted evidence available.</span>
-            <button type="submit">Ask</button>
-          </div>
-        </form>
-      </aside>
     </main>
-    <script src="{{ url_for('static', path='/app.js') }}?v=20260619-report-viewer-2"></script>
+
+    <button id="ask-open" class="ask-fab" type="button" aria-label="Ask about this competitor">
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+        <path d="M11 2C6.03 2 2 5.69 2 10.2c0 2.32 1.1 4.4 2.88 5.9L4 20l4.46-2.07A10.1 10.1 0 0011 18.4c4.97 0 9-3.69 9-8.2S15.97 2 11 2z" fill="currentColor"/>
+      </svg>
+      <span>Ask</span>
+    </button>
+    <div id="scrim" class="scrim hidden"></div>
+    <aside id="chat-drawer" class="drawer" aria-label="Ask about the competitor" aria-hidden="true">
+      <header class="drawer-head">
+        <div>
+          <p class="drawer-kicker">Ask the dossier</p>
+          <h2 id="drawer-title">Ask me anything</h2>
+        </div>
+        <div class="drawer-controls">
+          <button id="chat-clear" class="ghost-btn" type="button" title="Clear conversation" aria-label="Clear conversation">&#10005;<span class="drawer-ctrl-label">Clear</span></button>
+          <button id="ask-close" class="ghost-btn" type="button" aria-label="Close">&times;</button>
+        </div>
+      </header>
+      <div id="chat-log" class="chat-log" aria-live="polite"></div>
+      <form id="chat-form" class="chat-form">
+        <textarea id="chat-input" rows="3" placeholder="Ask about positioning, strengths, weaknesses, risks, or what JFrog should do next."></textarea>
+        <div class="chat-actions">
+          <span class="chat-note">Answers cite stored evidence.</span>
+          <button type="submit" class="btn btn-primary">Ask</button>
+        </div>
+      </form>
+    </aside>
+
+    <script src="{{ url_for('static', path='/app.js') }}?v=20260619-editorial-2"></script>
   </body>
 </html>

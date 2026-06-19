@@ -343,6 +343,20 @@ def fake_strategy_runner(prompt: str):
                 "confidence": "high",
             }
         ],
+        "swot": {
+            "vantage": "Sonatype, from JFrog's perspective",
+            "strengths": [{"text": "Deep open-source governance specialization.", "evidence_ids": [first]}],
+            "weaknesses": [{"text": "Narrower platform breadth than JFrog.", "evidence_ids": [second]}],
+            "opportunities": [{"text": "Regulation drives demand for its core controls.", "evidence_ids": [third]}],
+            "threats": [{"text": "JFrog platform consolidation momentum.", "evidence_ids": [first]}],
+        },
+        "confidence_tiering": {
+            "tiers": [
+                {"tier": "high", "summary": "Product capabilities are taken from vendor documentation."},
+                {"tier": "vendor_claim", "summary": "Detection statistics are vendor-stated and attributed."},
+            ],
+            "spot_check": ["Verify the competitor's reported ARR before executive review."],
+        },
         "confidence_notes": [
             "Confidence is highest where primary DB evidence and Tavily validation overlap."
         ],
@@ -410,6 +424,49 @@ def fake_market_runner(prompt: str):
                 "confidence": "low",
             }
         ],
+        "pestel": [
+            {
+                "axis": "legal",
+                "factor": "Supply-chain regulation tightens disclosure obligations",
+                "implication": "Rewards SBOM and governance depth",
+                "material": True,
+                "evidence_ids": [first],
+            },
+            {
+                "axis": "environmental",
+                "factor": "Limited direct relevance to this market today",
+                "implication": "Monitor only; not a differentiator",
+                "material": False,
+                "evidence_ids": [],
+            },
+        ],
+        "five_forces": [
+            {
+                "force": "competitive_rivalry",
+                "intensity": "high",
+                "rationale": "A crowded field competes for overlapping supply-chain security budgets.",
+                "evidence_ids": [first],
+            },
+            {
+                "force": "supplier_power",
+                "intensity": "low",
+                "rationale": "Inputs are public vulnerability feeds and open-source ecosystems.",
+                "evidence_ids": [second],
+            },
+        ],
+        "positioning_map": {
+            "x_axis_label": "go-to-market reach",
+            "x_low_label": "security overlay",
+            "x_high_label": "repository + platform",
+            "y_axis_label": "security depth",
+            "y_low_label": "commodity",
+            "y_high_label": "deeper security",
+            "narrative": "JFrog and the competitor share the platform-plus-repository strategic group.",
+            "players": [
+                {"name": "JFrog", "x": 78.0, "y": 55.0, "group": "platform", "is_focus": True, "evidence_ids": [first]},
+                {"name": "Sonatype", "x": 62.0, "y": 70.0, "group": "platform", "is_focus": True, "evidence_ids": [second]},
+            ],
+        },
         "confidence_notes": [
             "Confidence is strongest where DB evidence and Tavily validation point in the same market direction."
         ],
@@ -1102,14 +1159,63 @@ def test_render_html_contains_checker_and_sources():
 
     html = render_html(pack, draft, validation)
 
-    assert "Strategy Analyst" in html
+    assert "Executive Summary" in html
+    assert "Strategy Analyst" not in html
     assert "report-strategy-analyst" not in html
-    assert "Cited Sources" in html
+    assert "References" in html
+    assert "Cited Sources" not in html
     assert "Report Checker" not in html
     assert "Evidence Readiness" not in html
     assert "Source Inventory" not in html
     assert "Evidence Sources" not in html
     assert "JFrog vs Sonatype" in html
+
+
+def test_rendered_report_shows_analyst_frameworks_and_numbered_references():
+    result = generate_report(
+        "Sonatype",
+        mcp_client=FakeMcpClient(),
+        web_search=fake_tavily_search,
+        include_web=True,
+        draft_mode="crew_strategy_market",
+        strategy_runner=fake_strategy_runner,
+        market_runner=fake_market_runner,
+    )
+
+    html = render_html(result.evidence_pack, result.draft, result.validation)
+
+    # Analyst frameworks render from the optional section metadata.
+    assert "PESTEL" in html
+    assert "Porter's Five Forces" in html
+    assert "Strategic-group positioning" in html
+    assert 'class="posmap"' in html
+    assert "SWOT —" in html
+    assert "Methodology &amp; confidence" in html
+    # Immaterial PESTEL axis is dimmed, not dropped.
+    assert "pcell dim" in html
+    # Citations are inline superscripts mapped to a numbered reference list.
+    assert '<sup class="c">' in html
+    assert '<ol class="refs">' in html
+    assert "Cited Sources" not in html
+
+
+def test_trim_to_sentence_drops_dangling_fragment():
+    from ci_engine.crews.report.renderer import _trim_to_sentence
+
+    finished = (
+        "JFrog leads on platform breadth across thirty package formats. "
+        "Sonatype leads on open-source data depth."
+    )
+    assert _trim_to_sentence(finished) == finished
+    truncated = (
+        "JFrog leads on platform breadth across thirty package formats. "
+        "Sonatype counters with deeper open-source data and a curated firewall that ru"
+    )
+    trimmed = _trim_to_sentence(truncated)
+    assert trimmed.endswith("package formats.")
+    assert "that ru" not in trimmed
+    # Short phrases without terminal punctuation are left intact.
+    assert _trim_to_sentence("Core platform anchor") == "Core platform anchor"
 
 
 def test_analyst_draft_uses_section_agents_and_comparative_claims():
@@ -2002,13 +2108,11 @@ def test_rendered_strategy_market_product_technical_field_report_shows_matrix_fr
     html = render_html(result.evidence_pack, result.draft, result.validation)
     lowered = html.lower()
 
-    assert "Analysis Framework" in html
-    assert "Competitive Tradeoff Matrix" in html
+    assert "Competitive tradeoff matrix" in html
     assert "Product And Feature Analysis" in html
-    assert "Product Catalog" in html
-    assert "Capability Readout" in html
-    assert "Where Each Vendor Pressures The Other" in html
-    assert "Where JFrog Is Exposed" in html
+    assert "Product catalog" in html
+    assert "Capability comparison" in html
+    assert "Where JFrog is exposed" in html
     assert "Artifact system of record" in html
     assert "JFrog Field Battlecard" in html
     assert "Weighted Buyer Scorecards" not in html
@@ -2040,8 +2144,7 @@ def test_rendered_full_crew_scoring_mode_shows_buyer_scorecards():
     assert "Weighted Buyer Scorecards" in html
     assert "Platform Consolidation Fit" in html
     assert "Open Source Governance Fit" in html
-    assert "Confidence:" in html
-    assert "Weight:" in html
+    assert "Weight" in html
     assert "report-scoring-agent" not in lowered
     assert "evidence:" not in lowered
     assert "raw_path" not in lowered

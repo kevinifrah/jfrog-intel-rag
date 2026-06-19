@@ -48,20 +48,8 @@ def create_app(
         return {"reports": summaries, "report_root": str(root)}
 
     @app.get("/reports/{slug}/html")
-    async def report_html(request: Request, slug: str):
-        artifact_store = store()
-        if request.query_params.get("viewer") == "1":
-            summary = artifact_store.get_report(slug)
-            if summary is None:
-                raise HTTPException(status_code=404, detail="Report not found")
-            return _TEMPLATES.TemplateResponse(
-                request,
-                "screen_report.html.j2",
-                _screen_report_context(summary, artifact_store.read_report(slug)),
-                headers={"Cache-Control": "no-store"},
-            )
-
-        path = artifact_store.html_path(slug)
+    async def report_html(slug: str):
+        path = store().html_path(slug)
         if path is None:
             raise HTTPException(status_code=404, detail="HTML report not found")
         return HTMLResponse(
@@ -148,28 +136,6 @@ def _screen_friendly_report_html(path: Path) -> str:
   </style>
 """
     return html.replace("</head>", f"{screen_css}</head>", 1)
-
-
-def _screen_report_context(summary: Any, data: dict[str, Any]) -> dict[str, Any]:
-    draft = data.get("draft") if isinstance(data.get("draft"), dict) else {}
-    validation = data.get("validation") if isinstance(data.get("validation"), dict) else {}
-    sections = [
-        section
-        for section in draft.get("sections", [])
-        if isinstance(section, dict)
-    ]
-    scores = [
-        score
-        for score in draft.get("scores", [])
-        if isinstance(score, dict)
-    ]
-    return {
-        "summary": summary,
-        "draft": draft,
-        "validation": validation,
-        "sections": sections,
-        "scores": scores,
-    }
 
 
 def main() -> None:

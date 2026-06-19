@@ -202,7 +202,7 @@ CrewAI runtime settings for report agents:
 Config:
 
 - `models.chat_planner.name`: `claude-haiku-4-5`
-- `models.chat_answer.name`: `claude-haiku-4-5`
+- `models.chat_answer.name`: `claude-sonnet-4-6`
 - `models.chat_fallback.name`: `claude-sonnet-4-6`
 - planner temperature: `0.0`
 - answer temperature: `0.1`
@@ -221,7 +221,7 @@ Purpose:
 - write concise answers with structured sources
 - fail closed with `not enough evidence` when support is missing
 
-Haiku is the default for speed and cost. Sonnet is a fallback for complex synthesis or repeated grounding failures.
+Haiku plans the retrieval (speed, cost). Sonnet writes the answer (quality, grounding precision). Sonnet fallback is also used when the plan marks a question as complex or grounding fails and a stronger reasoning pass is justified.
 
 ## Deterministic Components
 
@@ -329,11 +329,22 @@ Current skills:
 - `ingest-synthesis`
 - `neutral-ci-contract`
 - `relevance-rubric`
+- `chat-query-planner`
+- `chat-mcp-tool-use`
+- `chat-answer-writer`
+- `chat-web-depth-selector`
+- `chat-grounding-checker`
 - `report-db-retrieval`
 - `report-evidence-quality`
 - `report-extensive-web-search`
 - `report-targeted-validation`
 - `report-evidence-pack-builder`
+- `report-market-cross-report` — canonical market axes (positioning map) and Five Forces baselines; composed first by the Market Analyst to enforce cross-report consistency
+- `report-framework-pestel` — PESTEL framework instructions
+- `report-framework-five-forces` — Porter's Five Forces framework instructions
+- `report-framework-positioning-map` — positioning map layout and axis instructions
+- `report-framework-swot` — SWOT framework instructions
+- `report-confidence-tiering` — confidence-tier definitions
 - `report-strategy-analyst`
 - `report-market-analyst`
 - `report-product-feature-analyst`

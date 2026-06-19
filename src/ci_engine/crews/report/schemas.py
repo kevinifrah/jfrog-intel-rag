@@ -245,6 +245,89 @@ class ReportClaim(ReportBaseModel):
     claim_type: Literal["fact", "analysis", "missing"] = "analysis"
 
 
+# --- Strategic frameworks (optional, additive; carried in ReportSection.metadata) ---
+# These let analysts emit named analyst frameworks (PESTEL, Porter's Five Forces,
+# strategic-group positioning, SWOT, confidence tiering) without changing draft_mode
+# gating or the existing section contract. Every field defaults to empty so older
+# drafts and minimal test fixtures keep validating.
+
+FrameworkIntensity = Literal["high", "moderate", "low"]
+PestelAxis = Literal[
+    "political",
+    "economic",
+    "social",
+    "technological",
+    "environmental",
+    "legal",
+]
+FiveForceName = Literal[
+    "competitive_rivalry",
+    "threat_of_new_entrants",
+    "threat_of_substitutes",
+    "buyer_power",
+    "supplier_power",
+]
+ConfidenceTierName = Literal["high", "medium", "vendor_claim", "author_judgment"]
+
+
+class PestelFactor(ReportBaseModel):
+    axis: PestelAxis
+    factor: str
+    implication: str
+    material: bool = True
+    evidence_ids: tuple[str, ...] = ()
+
+
+class FiveForce(ReportBaseModel):
+    force: FiveForceName
+    intensity: FrameworkIntensity
+    rationale: str
+    evidence_ids: tuple[str, ...] = ()
+
+
+class PositioningPlayer(ReportBaseModel):
+    name: str
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+    group: str | None = None
+    is_focus: bool = False
+    evidence_ids: tuple[str, ...] = ()
+
+
+class PositioningMap(ReportBaseModel):
+    x_axis_label: str
+    x_low_label: str
+    x_high_label: str
+    y_axis_label: str
+    y_low_label: str
+    y_high_label: str
+    players: tuple[PositioningPlayer, ...] = ()
+    narrative: str | None = None
+
+
+class SwotItem(ReportBaseModel):
+    text: str
+    evidence_ids: tuple[str, ...] = ()
+
+
+class SwotQuadrants(ReportBaseModel):
+    vantage: str
+    strengths: tuple[SwotItem, ...] = ()
+    weaknesses: tuple[SwotItem, ...] = ()
+    opportunities: tuple[SwotItem, ...] = ()
+    threats: tuple[SwotItem, ...] = ()
+
+
+class ConfidenceTier(ReportBaseModel):
+    tier: ConfidenceTierName
+    summary: str
+
+
+class ConfidenceTiering(ReportBaseModel):
+    tiers: tuple[ConfidenceTier, ...] = ()
+    spot_check: tuple[str, ...] = ()
+
+
 class StrategyClaim(ReportBaseModel):
     text: str
     evidence_ids: tuple[str, ...] = Field(min_length=1)
@@ -266,6 +349,8 @@ class StrategyAnalysis(ReportBaseModel):
     risks: tuple[StrategyClaim, ...] = Field(min_length=1)
     likely_next_moves: tuple[StrategyClaim, ...] = Field(min_length=1)
     recommended_actions: tuple[StrategyClaim, ...] = Field(min_length=1)
+    swot: SwotQuadrants | None = None
+    confidence_tiering: ConfidenceTiering | None = None
     confidence_notes: tuple[str, ...] = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -301,6 +386,9 @@ class MarketAnalysis(ReportBaseModel):
     go_to_market_motion: tuple[MarketClaim, ...] = Field(min_length=1)
     ecosystem_signals: tuple[MarketClaim, ...] = Field(min_length=1)
     market_risks: tuple[MarketClaim, ...] = Field(min_length=1)
+    pestel: tuple[PestelFactor, ...] = ()
+    five_forces: tuple[FiveForce, ...] = ()
+    positioning_map: PositioningMap | None = None
     confidence_notes: tuple[str, ...] = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -335,6 +423,9 @@ class TechnicalAnalysis(ReportBaseModel):
     ai_and_artifact_governance: tuple[TechnicalClaim, ...] = Field(min_length=1)
     security_capability_comparison: tuple[TechnicalClaim, ...] = Field(min_length=1)
     technical_risks: tuple[TechnicalClaim, ...] = Field(min_length=1)
+    # LLMs following the skill naturally emit supply-chain security risks as a separate
+    # field. Accept it here; technical_analysis_to_sections merges it into the security section.
+    supply_chain_security_technical_risk: tuple[TechnicalClaim, ...] = Field(default=())
     confidence_notes: tuple[str, ...] = Field(min_length=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 

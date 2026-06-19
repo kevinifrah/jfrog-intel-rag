@@ -21,12 +21,24 @@ from ci_engine.crews.report.schemas import (
 )
 from ci_engine.llm_json import parse_json_object
 from ci_engine.secrets import get_secret
+from ci_engine.skills import load_skill
 
 MARKET_SECTIONS = (
     "company_snapshot",
     "market_context",
     "buyer_fit",
     "field_battlecard",
+)
+
+# Analyst frameworks the Market Analyst also produces (taught via these skills,
+# emitted into the optional MarketAnalysis framework fields).
+# report-market-cross-report MUST be first — it defines canonical axes and baselines
+# that the per-framework skills below must follow to ensure cross-report comparability.
+MARKET_FRAMEWORK_SKILLS = (
+    "report-market-cross-report",
+    "report-framework-pestel",
+    "report-framework-five-forces",
+    "report-framework-positioning-map",
 )
 
 SOURCE_LIST_PROSE_PATTERNS = (
@@ -128,9 +140,18 @@ def build_market_prompt(evidence_pack: EvidencePack) -> str:
     payload = build_market_prompt_input(evidence_pack)
     schema = MarketAnalysis.model_json_schema()
     skill = load_agent_skill("market_analyst")
+    frameworks = "\n\n".join(load_skill(name) for name in MARKET_FRAMEWORK_SKILLS)
     return (
         f"{skill}\n\n"
+        f"{frameworks}\n\n"
         "Write the company_snapshot and market_context sections only.\n"
+        "Also populate the pestel, five_forces, and positioning_map fields per the framework skills above. "
+        "For the positioning_map, you MUST use the canonical axes defined in the cross-report skill: "
+        "x_axis_label='Supply-chain coverage breadth', y_axis_label='Security specialization depth'. "
+        "Do not invent different axes — these are fixed across all dossiers so reports are comparable. "
+        "For five_forces, start from the baseline intensities in the cross-report skill and adjust only "
+        "when your evidence strongly supports a different rating. "
+        "If the EvidencePack cannot support a framework, return it empty rather than inventing data.\n"
         "Return one strict JSON object and no markdown.\n"
         "Every claim must cite one or more IDs from allowed_evidence_ids.\n"
         "Put evidence IDs only in JSON evidence_ids fields. Never put IDs or "
@@ -237,8 +258,70 @@ def market_analysis_to_sections(
             evidence_ids=tuple(_unique_claim_evidence(market_claims)),
             claims=tuple(market_claims),
             narrative=f"Market Analyst market-context synthesis. Confidence notes: {confidence}",
+            metadata=_market_framework_metadata(analysis),
         ),
     )
+
+
+def _market_framework_metadata(analysis: MarketAnalysis) -> dict[str, Any]:
+    """Stash optional analyst frameworks into section metadata (renderer reads them)."""
+    meta: dict[str, Any] = {}
+    if analysis.pestel:
+        meta["pestel"] = [
+            {
+                "axis": factor.axis,
+                "factor": _presentation_text(factor.factor),
+                "implication": _presentation_text(factor.implication),
+                "material": factor.material,
+                "evidence_ids": list(factor.evidence_ids),
+            }
+            for factor in analysis.pestel
+        ]
+    if analysis.five_forces:
+        meta["five_forces"] = [
+            {
+                "force": force.force,
+                "intensity": force.intensity,
+                "rationale": _presentation_text(force.rationale),
+                "evidence_ids": list(force.evidence_ids),
+            }
+            for force in analysis.five_forces
+        ]
+    if analysis.positioning_map is not None:
+        pmap = analysis.positioning_map
+        meta["positioning_map"] = {
+            "x_axis_label": _presentation_text(pmap.x_axis_label),
+            "x_low_label": _presentation_text(pmap.x_low_label),
+            "x_high_label": _presentation_text(pmap.x_high_label),
+            "y_axis_label": _presentation_text(pmap.y_axis_label),
+            "y_low_label": _presentation_text(pmap.y_low_label),
+            "y_high_label": _presentation_text(pmap.y_high_label),
+            "narrative": _presentation_text(pmap.narrative or ""),
+            "players": [
+                {
+                    "name": player.name,
+                    "x": player.x,
+                    "y": player.y,
+                    "group": player.group,
+                    "is_focus": player.is_focus,
+                    "evidence_ids": list(player.evidence_ids),
+                }
+                for player in pmap.players
+            ],
+        }
+    return meta
+
+
+def _market_framework_evidence_ids(analysis: MarketAnalysis) -> list[str]:
+    ids: list[str] = []
+    for factor in analysis.pestel:
+        ids.extend(factor.evidence_ids)
+    for force in analysis.five_forces:
+        ids.extend(force.evidence_ids)
+    if analysis.positioning_map is not None:
+        for player in analysis.positioning_map.players:
+            ids.extend(player.evidence_ids)
+    return ids
 
 
 class CrewAIMarketRunner:
@@ -347,11 +430,15 @@ def _validate_market_citations(
     *,
     allowed_evidence_ids: set[str],
 ) -> None:
+    claim_ids = (
+        evidence_id
+        for claim in _market_claims(analysis)
+        for evidence_id in claim.evidence_ids
+    )
     unknown_ids = sorted(
         {
             evidence_id
-            for claim in _market_claims(analysis)
-            for evidence_id in claim.evidence_ids
+            for evidence_id in (*claim_ids, *_market_framework_evidence_ids(analysis))
             if evidence_id not in allowed_evidence_ids
         }
     )
@@ -494,7 +581,7 @@ def _short_text(text: str, *, limit: int = 700) -> str:
 
 _EVIDENCE_ID_RE = re.compile(r"\[[a-f0-9]{12,40}\]", re.IGNORECASE)
 _SOURCE_NUMBER_RE = re.compile(r"\[(?:\d{1,2})(?:\s*,\s*\d{1,2})*\]")
-_AUDIT_LABEL_RE = re.compile(r"(^|\s)(?:evidence|source|sources)\s*:", re.IGNORECASE)
+_AUDIT_LABEL_RE = re.compile(r"^\s*(?:[-*•·]\s*)?(?:evidence|sources?)\s*:", re.IGNORECASE | re.MULTILINE)
 
 
 def _presentation_text(text: str) -> str:

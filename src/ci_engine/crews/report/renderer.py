@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 import re
 import tempfile
-from typing import Iterable
+from typing import Any, Iterable
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ci_engine.crews.report.schemas import (
+    EvidenceItem,
     EvidencePack,
     RenderResult,
     ReportDraft,
@@ -19,6 +20,104 @@ from ci_engine.crews.report.schemas import (
 )
 
 _TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+# Canonical reading order of the dossier (the inverted pyramid).
+_SECTION_ORDER = (
+    "executive_summary",
+    "company_snapshot",
+    "market_context",
+    "product_feature_analysis",
+    "technical_teardown",
+    "supply_chain_security",
+    "buyer_fit",
+    "field_battlecard",
+)
+
+# Mono eyebrow shown above each section title (analyst-report styling, not agent names).
+_SECTION_EYEBROW = {
+    "executive_summary": "Executive summary",
+    "company_snapshot": "Company snapshot",
+    "market_context": "Part 1 · Market & strategic context",
+    "product_feature_analysis": "Part 2 · Product & feature analysis",
+    "technical_teardown": "Part 2 · Technical teardown",
+    "supply_chain_security": "Part 2 · Supply-chain security",
+    "buyer_fit": "Part 3 · Buyer-fit matrix",
+    "field_battlecard": "Part 4 · Field battlecard",
+}
+
+_FIVE_FORCE_LABELS = {
+    "competitive_rivalry": "Competitive rivalry",
+    "threat_of_new_entrants": "Threat of new entrants",
+    "threat_of_substitutes": "Threat of substitutes",
+    "buyer_power": "Buyer power",
+    "supplier_power": "Supplier power",
+}
+
+_PESTEL_LABELS = {
+    "political": "Political",
+    "economic": "Economic",
+    "social": "Social",
+    "technological": "Technological",
+    "environmental": "Environmental",
+    "legal": "Legal",
+}
+
+_CONFIDENCE_TIER_LABELS = {
+    "high": "High confidence — primary sources",
+    "medium": "Medium confidence — third-party / point-in-time",
+    "vendor_claim": "Vendor claims — attributed, not verified",
+    "author_judgment": "Author's judgment — not data",
+}
+
+
+class _CiteRegistry:
+    """Assigns a stable reference number to each cited source, de-duplicated by URL.
+
+    Numbers are allocated in the order `cite()` is called, so callers build their
+    presentation structures in reading order and the References list comes out
+    numbered top-to-bottom like a real dossier.
+    """
+
+    def __init__(self, evidence_by_id: dict[str, EvidenceItem]) -> None:
+        self._by_id = evidence_by_id
+        self._key_to_num: dict[str, int] = {}
+        self._num_to_item: dict[int, EvidenceItem] = {}
+        self._next = 1
+
+    def cite(self, evidence_ids: Iterable[str]) -> list[int]:
+        numbers: list[int] = []
+        for evidence_id in evidence_ids or ():
+            item = self._by_id.get(evidence_id)
+            if item is None:
+                continue
+            key = (item.url or "").strip().lower() or f"id:{evidence_id}"
+            number = self._key_to_num.get(key)
+            if number is None:
+                number = self._next
+                self._next += 1
+                self._key_to_num[key] = number
+                self._num_to_item[number] = item
+            if number not in numbers:
+                numbers.append(number)
+        return sorted(numbers)
+
+    def references(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for number in sorted(self._num_to_item):
+            item = self._num_to_item[number]
+            rows.append(
+                {
+                    "number": number,
+                    "citation": _reader_safe_citation_text(
+                        str(getattr(item, "title", None) or getattr(item, "publisher", None) or "Source")
+                    ),
+                    "publisher": getattr(item, "publisher", None) or getattr(item, "company", ""),
+                    "url": getattr(item, "url", None) or "",
+                    "date": getattr(item, "published", None)
+                    or getattr(item, "retrieved_at").date(),
+                }
+            )
+        return rows
 
 
 def render_html(
@@ -32,30 +131,488 @@ def render_html(
     )
     environment.filters["report_text"] = _reader_safe_body_text
     template = environment.get_template("dossier.html.j2")
+
     sections = _presentation_sections(draft)
     scores = _presentation_scores(draft)
-    cited_ids = _cited_evidence_ids(sections, scores)
-    cited_evidence = [
-        item
-        for item in evidence_pack.items
-        if item.id in cited_ids
-    ]
+    by_id = {section.id: section for section in sections}
+    citer = _CiteRegistry({item.id: item for item in evidence_pack.items})
+
+    # Build presentation structures in reading order so reference numbers flow.
+    executive = _executive_brief(by_id, draft.competitor, citer)
+    presentation_sections = _ordered_presentation_sections(sections, draft.competitor, citer)
+    scorecards = _presentation_scorecards(scores, citer)
+    confidence_tiering = _confidence_tiering(by_id)
+    references = citer.references()
+
     return template.render(
-        evidence_pack=evidence_pack,
         draft=draft,
         validation=validation,
-        sections=sections,
-        scores=scores,
-        framework_cards=_framework_cards(sections),
-        comparison_rows=_comparison_rows(sections, draft.competitor),
-        section_readouts=_section_readouts(sections),
-        capability_summary=_capability_summary(sections, draft.competitor),
-        product_catalog_rows=_product_catalog_rows(sections),
-        product_advantage_rows=_product_advantage_rows(sections),
-        capability_gap_rows=_capability_gap_rows(sections, draft.competitor),
-        evidence_by_id={item.id: item for item in evidence_pack.items},
-        cited_evidence=[_cited_source_row(item) for item in cited_evidence],
+        competitor=draft.competitor,
+        jfrog=draft.jfrog,
+        generated_date=draft.generated_at.date(),
+        evidence_count=len(evidence_pack.items),
+        executive=executive,
+        sections=presentation_sections,
+        scorecards=scorecards,
+        confidence_tiering=confidence_tiering,
+        references=references,
+        toc=_table_of_contents(presentation_sections, scorecards, confidence_tiering, references),
     )
+
+
+# --------------------------------------------------------------------------- #
+# Executive brief (thesis + recommended actions + tradeoff matrix + SWOT)
+# --------------------------------------------------------------------------- #
+def _executive_brief(
+    by_id: dict[str, ReportSection],
+    competitor: str,
+    citer: _CiteRegistry,
+) -> dict[str, Any]:
+    executive = by_id.get("executive_summary")
+    thesis = _cited(_first_claim(executive, ("strategy-executive-thesis",)), citer) if executive else None
+    actions = (
+        [
+            _cited(claim, citer)
+            for claim in executive.claims
+            if claim.claim_type != "missing"
+            and claim.id.startswith("strategy-recommended-action")
+        ]
+        if executive
+        else []
+    )
+    return {
+        "thesis": thesis,
+        "recommended_actions": actions,
+        "tradeoff_rows": _comparison_rows(tuple(by_id.values()), competitor, citer),
+        "swot": _swot(executive, citer) if executive else None,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Sections (readouts + per-section framework visuals)
+# --------------------------------------------------------------------------- #
+def _ordered_presentation_sections(
+    sections: tuple[ReportSection, ...],
+    competitor: str,
+    citer: _CiteRegistry,
+) -> list[dict[str, Any]]:
+    by_id = {section.id: section for section in sections}
+    # executive_summary is rendered via the executive brief (thesis + tradeoff + SWOT),
+    # so it is omitted here to avoid duplicating the same claims.
+    ordered_ids = [sid for sid in _SECTION_ORDER if sid in by_id and sid != "executive_summary"]
+    ordered_ids += [
+        section.id
+        for section in sections
+        if section.id not in _SECTION_ORDER and section.id != "executive_summary"
+    ]
+    presentation: list[dict[str, Any]] = []
+    for section_id in ordered_ids:
+        section = by_id[section_id]
+        presentation.append(_present_section(section, competitor, citer))
+    return presentation
+
+
+def _present_section(
+    section: ReportSection,
+    competitor: str,
+    citer: _CiteRegistry,
+) -> dict[str, Any]:
+    readouts = _section_readouts(section, citer)
+    lead = None
+    body_readouts = readouts
+    if readouts and readouts[0]["label"].lower().endswith("thesis"):
+        lead = readouts[0]
+        body_readouts = readouts[1:]
+    missing = [
+        _reader_safe_body_text(claim.text)
+        for claim in section.claims
+        if claim.claim_type == "missing"
+    ]
+    return {
+        "id": section.id,
+        "title": section.title,
+        "eyebrow": _SECTION_EYEBROW.get(section.id, "Analysis"),
+        "lead": lead,
+        "readouts": body_readouts,
+        "missing": missing,
+        "pestel": _pestel(section),
+        "five_forces": _five_forces(section),
+        "positioning": _positioning(section),
+        "capability_matrix": _capability_matrix(section),
+        "product_catalog": _product_catalog_rows(section),
+        "capability_gaps": _capability_gap_rows(section, competitor),
+        "is_product": section.id == "product_feature_analysis",
+        "is_executive": section.id == "executive_summary",
+    }
+
+
+def _section_readouts(section: ReportSection, citer: _CiteRegistry) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for label, prefixes in _READOUT_SPECS.get(section.id, ()):
+        claim = _first_claim(section, prefixes)
+        if claim is None:
+            continue
+        rows.append({"label": label, **_cited(claim, citer)})
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# Framework extractors (read the optional metadata stashed by the analysts)
+# --------------------------------------------------------------------------- #
+def _pestel(section: ReportSection) -> list[dict[str, Any]]:
+    factors = section.metadata.get("pestel")
+    if not isinstance(factors, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for factor in factors:
+        if not isinstance(factor, dict):
+            continue
+        rows.append(
+            {
+                "axis": _PESTEL_LABELS.get(str(factor.get("axis")), str(factor.get("axis", "")).title()),
+                "factor": _reader_safe_body_text(str(factor.get("factor", ""))),
+                "implication": _reader_safe_body_text(str(factor.get("implication", ""))),
+                "material": bool(factor.get("material", True)),
+            }
+        )
+    return rows
+
+
+def _five_forces(section: ReportSection) -> list[dict[str, Any]]:
+    forces = section.metadata.get("five_forces")
+    if not isinstance(forces, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for force in forces:
+        if not isinstance(force, dict):
+            continue
+        rows.append(
+            {
+                "force": _FIVE_FORCE_LABELS.get(str(force.get("force")), str(force.get("force", "")).title()),
+                "intensity": str(force.get("intensity", "moderate")),
+                "rationale": _reader_safe_body_text(str(force.get("rationale", ""))),
+            }
+        )
+    return rows
+
+
+def _positioning(section: ReportSection) -> dict[str, Any] | None:
+    pmap = section.metadata.get("positioning_map")
+    if not isinstance(pmap, dict):
+        return None
+    players = [
+        {
+            "name": str(player.get("name", "")),
+            "x": _coord(player.get("x")),
+            "y": _coord(player.get("y")),
+            "group": player.get("group"),
+            "is_focus": bool(player.get("is_focus", False)),
+        }
+        for player in pmap.get("players", [])
+        if isinstance(player, dict) and player.get("name")
+    ]
+    if not players:
+        return None
+    return {
+        "x_axis_label": _reader_safe_body_text(str(pmap.get("x_axis_label", ""))),
+        "x_low_label": _reader_safe_body_text(str(pmap.get("x_low_label", ""))),
+        "x_high_label": _reader_safe_body_text(str(pmap.get("x_high_label", ""))),
+        "y_axis_label": _reader_safe_body_text(str(pmap.get("y_axis_label", ""))),
+        "y_low_label": _reader_safe_body_text(str(pmap.get("y_low_label", ""))),
+        "y_high_label": _reader_safe_body_text(str(pmap.get("y_high_label", ""))),
+        "narrative": _reader_safe_body_text(str(pmap.get("narrative", ""))),
+        "players": players,
+    }
+
+
+def _swot(section: ReportSection, citer: _CiteRegistry) -> dict[str, Any] | None:
+    swot = section.metadata.get("swot")
+    if not isinstance(swot, dict):
+        return None
+
+    def _quadrant(key: str) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for item in swot.get(key, []):
+            if not isinstance(item, dict):
+                continue
+            text = _reader_safe_body_text(str(item.get("text", "")))
+            if not text:
+                continue
+            rows.append({"text": text, "cites": citer.cite(item.get("evidence_ids", ()))})
+        return rows
+
+    quadrants = {
+        "strengths": _quadrant("strengths"),
+        "weaknesses": _quadrant("weaknesses"),
+        "opportunities": _quadrant("opportunities"),
+        "threats": _quadrant("threats"),
+    }
+    if not any(quadrants.values()):
+        return None
+    return {"vantage": _reader_safe_body_text(str(swot.get("vantage", ""))), **quadrants}
+
+
+def _confidence_tiering(by_id: dict[str, ReportSection]) -> dict[str, Any] | None:
+    executive = by_id.get("executive_summary")
+    if executive is None:
+        return None
+    tiering = executive.metadata.get("confidence_tiering")
+    if not isinstance(tiering, dict):
+        return None
+    tiers = [
+        {
+            "label": _CONFIDENCE_TIER_LABELS.get(str(tier.get("tier")), str(tier.get("tier", "")).title()),
+            "summary": _reader_safe_body_text(str(tier.get("summary", ""))),
+        }
+        for tier in tiering.get("tiers", [])
+        if isinstance(tier, dict) and tier.get("summary")
+    ]
+    spot_check = [
+        _reader_safe_body_text(str(note))
+        for note in tiering.get("spot_check", [])
+        if str(note).strip()
+    ]
+    if not tiers and not spot_check:
+        return None
+    return {"tiers": tiers, "spot_check": spot_check}
+
+
+# --------------------------------------------------------------------------- #
+# Product tables
+# --------------------------------------------------------------------------- #
+def _capability_matrix(section: ReportSection) -> list[dict[str, Any]]:
+    matrix = section.metadata.get("capability_matrix")
+    if not isinstance(matrix, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in matrix:
+        if not isinstance(row, dict):
+            continue
+        rows.append(
+            {
+                "capability": _reader_safe_body_text(str(row.get("capability", ""))),
+                "jfrog": _reader_safe_body_text(str(row.get("jfrog", ""))),
+                "competitor": _reader_safe_body_text(str(row.get("competitor", ""))),
+                "assessment": str(row.get("assessment", "unclear")),
+            }
+        )
+    return rows
+
+
+def _product_catalog_rows(section: ReportSection) -> list[dict[str, Any]]:
+    catalog = section.metadata.get("product_catalog")
+    if not isinstance(catalog, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for item in catalog:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "company": item.get("company", ""),
+                "product_name": item.get("product_name", ""),
+                "category": item.get("category", ""),
+                "primary_role": item.get("primary_role", ""),
+                "capabilities": ", ".join(
+                    str(capability)
+                    for capability in item.get("capabilities", [])
+                    if str(capability).strip()
+                ),
+            }
+        )
+    return rows
+
+
+def _capability_gap_rows(section: ReportSection, competitor: str) -> list[dict[str, Any]]:
+    gaps = section.metadata.get("capability_evidence_gaps")
+    if not isinstance(gaps, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for row in gaps:
+        if not isinstance(row, dict):
+            continue
+        jfrog = row.get("jfrog") if isinstance(row.get("jfrog"), dict) else {}
+        rival = row.get("competitor") if isinstance(row.get("competitor"), dict) else {}
+        rows.append(
+            {
+                "capability": row.get("capability_label", ""),
+                "jfrog_status": str(jfrog.get("status", "unknown")).replace("_", " "),
+                "competitor_status": str(rival.get("status", "unknown")).replace("_", " "),
+                "readout": str(row.get("search_status", "unknown")).replace("_", " "),
+            }
+        )
+    return rows
+
+
+# --------------------------------------------------------------------------- #
+# Tradeoff matrix + scorecards
+# --------------------------------------------------------------------------- #
+def _comparison_rows(
+    sections: tuple[ReportSection, ...],
+    competitor: str,
+    citer: _CiteRegistry,
+) -> list[dict[str, Any]]:
+    by_id = {section.id: section for section in sections}
+    row_specs = [
+        ("Strategy", "executive_summary", ("strategy-jfrog-advantage",),
+         ("strategy-competitor-strength",), ("strategy-recommended-action", "strategy-risk")),
+        ("Market", "market_context", ("market-buyer-segment", "market-gtm-motion"),
+         ("market-competitor-company-position", "market-risk"),
+         ("market-context-thesis", "market-ecosystem-signal")),
+        ("Product", "product_feature_analysis", ("product-jfrog-advantage",),
+         ("product-competitor-advantage", "product-jfrog-limitation"),
+         ("product-buyer-implication", "product-parity-gap")),
+        ("Technical", "technical_teardown", ("technical-jfrog-capability",),
+         ("technical-competitor-capability", "technical-risk"),
+         ("technical-architecture-workflow", "technical-ai-artifact-governance")),
+        ("Buyer fit", "buyer_fit", ("buyer-jfrog-win-condition",),
+         ("buyer-competitor-win-condition", "buyer-qualify-out-signal"), ("buyer-fit-thesis",)),
+        ("Field action", "field_battlecard", ("field-action",),
+         ("field-objection-handling",), ("field-battlecard-thesis", "field-discovery-question")),
+    ]
+    rows: list[dict[str, Any]] = []
+    for lens, section_id, jfrog_prefixes, competitor_prefixes, implication_prefixes in row_specs:
+        section = by_id.get(section_id)
+        if section is None:
+            continue
+        jfrog = _cited(_first_claim(section, jfrog_prefixes), citer)
+        rival = _cited(_first_claim(section, competitor_prefixes), citer)
+        implication = _cited(_first_claim(section, implication_prefixes), citer)
+        if not (jfrog["text"] or rival["text"] or implication["text"]):
+            continue
+        rows.append({"lens": lens, "jfrog": jfrog, "competitor": rival, "implication": implication})
+    return rows
+
+
+def _presentation_scorecards(
+    scores: tuple[ScoreItem, ...],
+    citer: _CiteRegistry,
+) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    for score in scores:
+        max_value = score.max_value or 5.0
+        cards.append(
+            {
+                "company": score.company,
+                "category": score.category,
+                "buyer_archetype": _reader_safe_body_text(score.buyer_archetype or ""),
+                "value": score.value,
+                "max_value": max_value,
+                "percent": max(0, min(100, round(score.value / max_value * 100))) if max_value else 0,
+                "rationale": _reader_safe_body_text(score.rationale),
+                "weight": round((score.weight or 0) * 100),
+                "cites": citer.cite(score.evidence_ids),
+            }
+        )
+    return cards
+
+
+# --------------------------------------------------------------------------- #
+# Table of contents
+# --------------------------------------------------------------------------- #
+def _table_of_contents(
+    sections: list[dict[str, Any]],
+    scorecards: list[dict[str, Any]],
+    confidence_tiering: dict[str, Any] | None,
+    references: list[dict[str, Any]],
+) -> list[dict[str, str]]:
+    entries = [{"anchor": "executive-summary", "label": "Executive Summary"}]
+    for section in sections:
+        if section["id"] == "executive_summary":
+            continue
+        entries.append({"anchor": section["id"].replace("_", "-"), "label": section["title"]})
+    if scorecards:
+        entries.append({"anchor": "scorecards", "label": "Weighted Buyer Scorecards"})
+    if confidence_tiering:
+        entries.append({"anchor": "methodology", "label": "Methodology & confidence"})
+    if references:
+        entries.append({"anchor": "references", "label": "References"})
+    return entries
+
+
+# --------------------------------------------------------------------------- #
+# Shared helpers
+# --------------------------------------------------------------------------- #
+def _cited(claim: Any, citer: _CiteRegistry) -> dict[str, Any]:
+    if claim is None:
+        return {"text": "", "cites": []}
+    return {
+        "text": _trim_to_sentence(_reader_safe_body_text(claim.text)),
+        "cites": citer.cite(getattr(claim, "evidence_ids", ()) or ()),
+    }
+
+
+def _first_claim(section: ReportSection | None, prefixes: tuple[str, ...]):
+    if section is None:
+        return None
+    return next(
+        (
+            claim
+            for claim in section.claims
+            if claim.claim_type != "missing"
+            and any(claim.id.startswith(prefix) for prefix in prefixes)
+        ),
+        None,
+    )
+
+
+def _coord(value: Any) -> float:
+    try:
+        return max(0.0, min(100.0, float(value)))
+    except (TypeError, ValueError):
+        return 50.0
+
+
+_READOUT_SPECS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+    "executive_summary": (
+        ("Thesis", ("strategy-executive-thesis",)),
+        ("JFrog edge", ("strategy-jfrog-advantage",)),
+        ("Competitor edge", ("strategy-competitor-strength",)),
+        ("Risk", ("strategy-risk",)),
+        ("Recommended action", ("strategy-recommended-action",)),
+    ),
+    "company_snapshot": (
+        ("Company thesis", ("market-company-snapshot-thesis",)),
+        ("JFrog position", ("market-jfrog-company-position",)),
+        ("Competitor position", ("market-competitor-company-position",)),
+    ),
+    "market_context": (
+        ("Market thesis", ("market-context-thesis",)),
+        ("Buyer segment", ("market-buyer-segment",)),
+        ("GTM motion", ("market-gtm-motion",)),
+        ("Risk", ("market-risk",)),
+    ),
+    "product_feature_analysis": (
+        ("Product thesis", ("product-feature-thesis",)),
+        ("JFrog advantage", ("product-jfrog-advantage",)),
+        ("Competitor advantage", ("product-competitor-advantage",)),
+        ("Where JFrog is exposed", ("product-jfrog-limitation",)),
+        ("Buyer implication", ("product-buyer-implication",)),
+    ),
+    "technical_teardown": (
+        ("Technical thesis", ("technical-teardown-thesis",)),
+        ("JFrog capability", ("technical-jfrog-capability",)),
+        ("Competitor capability", ("technical-competitor-capability",)),
+        ("Architecture implication", ("technical-architecture-workflow",)),
+        ("AI / artifact governance", ("technical-ai-artifact-governance",)),
+    ),
+    "supply_chain_security": (
+        ("Security comparison", ("technical-security-comparison",)),
+        ("Technical risk", ("technical-risk",)),
+    ),
+    "buyer_fit": (
+        ("Buyer-fit thesis", ("buyer-fit-thesis",)),
+        ("Where JFrog wins", ("buyer-jfrog-win-condition",)),
+        ("Where competitor wins", ("buyer-competitor-win-condition",)),
+        ("Qualify-out signal", ("buyer-qualify-out-signal",)),
+    ),
+    "field_battlecard": (
+        ("Battlecard thesis", ("field-battlecard-thesis",)),
+        ("Objection handling", ("field-objection-handling",)),
+        ("Discovery question", ("field-discovery-question",)),
+        ("Field action", ("field-action",)),
+    ),
+}
 
 
 def write_report_artifacts(
@@ -143,7 +700,15 @@ def _ensure_pdf_cache_dir() -> None:
 
 
 def _blocked_url_fetcher(url: str) -> dict[str, object]:
-    raise ValueError(f"External resource fetching is disabled for report PDF rendering: {url}")
+    # Local font/asset files (file://) bundled next to the template are allowed for
+    # PDF rendering. Network resources (e.g. the web-font stylesheet that browsers load
+    # for the screen view) are NOT fetched at render time — they are stubbed empty so the
+    # PDF falls back to the system font stack without crashing or touching the web.
+    if url.startswith("file:"):
+        from weasyprint.urls import default_url_fetcher  # noqa: PLC0415
+
+        return default_url_fetcher(url)
+    return {"string": "", "mime_type": "text/css"}
 
 
 def _presentation_sections(draft: ReportDraft) -> tuple[ReportSection, ...]:
@@ -203,363 +768,6 @@ def _presentation_scores(draft: ReportDraft) -> tuple[ScoreItem, ...]:
     return draft.scores
 
 
-def _cited_evidence_ids(
-    sections: tuple[ReportSection, ...],
-    scores: tuple[ScoreItem, ...],
-) -> set[str]:
-    cited: set[str] = set()
-    for section in sections:
-        cited.update(section.evidence_ids)
-        for claim in section.claims:
-            cited.update(claim.evidence_ids)
-    for score in scores:
-        cited.update(score.evidence_ids)
-    return cited
-
-
-def _framework_cards(sections: tuple[ReportSection, ...]) -> list[dict[str, object]]:
-    labels = {
-        "executive_summary": ("Strategic Posture", "Where the comparison is won or lost"),
-        "company_snapshot": ("Company Signal", "Business context and operating posture"),
-        "market_context": ("Market Frame", "Buyer demand and competitive motion"),
-        "product_feature_analysis": ("Product & Features", "Capability-by-capability tradeoffs"),
-        "technical_teardown": ("Architecture Lens", "Workflow, deployment, and technical control points"),
-        "supply_chain_security": ("Security Coverage", "Supply-chain controls and governance depth"),
-        "buyer_fit": ("Buyer Fit", "Where each vendor is most dangerous"),
-        "field_battlecard": ("Field Action", "How teams should qualify and respond"),
-    }
-    cards: list[dict[str, object]] = []
-    for section in sections:
-        title, caption = labels.get(section.id, (section.title, "Evidence-backed analysis"))
-        cards.append(
-            {
-                "title": title,
-                "caption": caption,
-                "claim_count": len(section.claims),
-                "summary": _shorten_for_display(
-                    next(
-                        (
-                            claim.text
-                            for claim in section.claims
-                            if claim.claim_type != "missing"
-                        ),
-                        section.narrative or "",
-                    ),
-                    limit=155,
-                ),
-            }
-        )
-    return cards
-
-
-def _capability_summary(
-    sections: tuple[ReportSection, ...],
-    competitor: str,
-) -> list[dict[str, object]]:
-    product = next(
-        (section for section in sections if section.id == "product_feature_analysis"),
-        None,
-    )
-    if product is None:
-        return []
-    matrix = product.metadata.get("capability_matrix")
-    if not isinstance(matrix, list):
-        return []
-    counts = {
-        "jfrog_advantage": 0,
-        "competitor_advantage": 0,
-        "parity": 0,
-        "unclear": 0,
-    }
-    for row in matrix:
-        if not isinstance(row, dict):
-            continue
-        assessment = str(row.get("assessment", "unclear"))
-        if assessment in counts:
-            counts[assessment] += 1
-    total = sum(counts.values()) or 1
-    rows = [
-        ("JFrog advantage", "jfrog", counts["jfrog_advantage"]),
-        (f"{competitor} advantage", "rival", counts["competitor_advantage"]),
-        ("Parity", "parity", counts["parity"]),
-        ("Unclear", "unclear", counts["unclear"]),
-    ]
-    return [
-        {
-            "label": label,
-            "class": css_class,
-            "count": count,
-            "width": max(3, round(count / total * 100)) if count else 0,
-        }
-        for label, css_class, count in rows
-    ]
-
-
-def _product_catalog_rows(
-    sections: tuple[ReportSection, ...],
-) -> list[dict[str, object]]:
-    product = next(
-        (section for section in sections if section.id == "product_feature_analysis"),
-        None,
-    )
-    if product is None:
-        return []
-    catalog = product.metadata.get("product_catalog")
-    if not isinstance(catalog, list):
-        return []
-    rows: list[dict[str, object]] = []
-    for item in catalog:
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "company": item.get("company", ""),
-                "product_name": item.get("product_name", ""),
-                "category": item.get("category", ""),
-                "primary_role": item.get("primary_role", ""),
-                "capabilities": ", ".join(
-                    str(capability)
-                    for capability in item.get("capabilities", [])
-                    if str(capability).strip()
-                ),
-                "confidence": item.get("confidence", "unknown"),
-            }
-        )
-    return rows
-
-
-def _product_advantage_rows(
-    sections: tuple[ReportSection, ...],
-) -> dict[str, list[dict[str, object]]]:
-    product = next(
-        (section for section in sections if section.id == "product_feature_analysis"),
-        None,
-    )
-    if product is None:
-        return {"jfrog": [], "competitor": []}
-    matrix = product.metadata.get("capability_matrix")
-    if not isinstance(matrix, list):
-        return {"jfrog": [], "competitor": []}
-    rows = {"jfrog": [], "competitor": []}
-    for item in matrix:
-        if not isinstance(item, dict):
-            continue
-        assessment = str(item.get("assessment") or "")
-        row = {
-            "capability": item.get("capability", ""),
-            "jfrog": item.get("jfrog", ""),
-            "competitor": item.get("competitor", ""),
-            "confidence": item.get("confidence", "unknown"),
-        }
-        if assessment == "jfrog_advantage":
-            rows["jfrog"].append(row)
-        elif assessment == "competitor_advantage":
-            rows["competitor"].append(row)
-    return rows
-
-
-def _capability_gap_rows(
-    sections: tuple[ReportSection, ...],
-    competitor: str,
-) -> list[dict[str, object]]:
-    product = next(
-        (section for section in sections if section.id == "product_feature_analysis"),
-        None,
-    )
-    if product is None:
-        return []
-    gaps = product.metadata.get("capability_evidence_gaps")
-    if not isinstance(gaps, list):
-        return []
-    rows: list[dict[str, object]] = []
-    for row in gaps:
-        if not isinstance(row, dict):
-            continue
-        jfrog = row.get("jfrog") if isinstance(row.get("jfrog"), dict) else {}
-        rival = row.get("competitor") if isinstance(row.get("competitor"), dict) else {}
-        rows.append(
-            {
-                "capability": row.get("capability_label", ""),
-                "jfrog_status": jfrog.get("status", "unknown"),
-                "competitor_status": rival.get("status", "unknown"),
-                "competitor": competitor,
-                "readout": row.get("search_status", "unknown"),
-                "confidence": row.get("confidence", "unknown"),
-            }
-        )
-    return rows
-
-
-def _comparison_rows(
-    sections: tuple[ReportSection, ...],
-    competitor: str,
-) -> list[dict[str, object]]:
-    by_id = {section.id: section for section in sections}
-    row_specs = [
-        (
-            "Strategy",
-            "executive_summary",
-            ("strategy-jfrog-advantage",),
-            ("strategy-competitor-strength",),
-            ("strategy-recommended-action", "strategy-risk"),
-        ),
-        (
-            "Market",
-            "market_context",
-            ("market-buyer-segment", "market-gtm-motion"),
-            ("market-competitor-company-position", "market-risk"),
-            ("market-context-thesis", "market-ecosystem-signal"),
-        ),
-        (
-            "Product & Features",
-            "product_feature_analysis",
-            ("product-jfrog-advantage",),
-            ("product-competitor-advantage", "product-jfrog-limitation"),
-            ("product-buyer-implication", "product-parity-gap"),
-        ),
-        (
-            "Technical",
-            "technical_teardown",
-            ("technical-jfrog-capability",),
-            ("technical-competitor-capability", "technical-risk"),
-            ("technical-architecture-workflow", "technical-ai-artifact-governance"),
-        ),
-        (
-            "Buyer Fit",
-            "buyer_fit",
-            ("buyer-jfrog-win-condition",),
-            ("buyer-competitor-win-condition", "buyer-qualify-out-signal"),
-            ("buyer-fit-thesis",),
-        ),
-        (
-            "Field Action",
-            "field_battlecard",
-            ("field-action",),
-            ("field-objection-handling",),
-            ("field-battlecard-thesis", "field-discovery-question"),
-        ),
-    ]
-    rows: list[dict[str, object]] = []
-    for lens, section_id, jfrog_prefixes, competitor_prefixes, implication_prefixes in row_specs:
-        section = by_id.get(section_id)
-        if section is None:
-            continue
-        rows.append(
-            {
-                "lens": lens,
-                "jfrog": _first_claim_text(section, jfrog_prefixes),
-                "competitor": _first_claim_text(section, competitor_prefixes),
-                "implication": _first_claim_text(section, implication_prefixes),
-                "competitor_label": competitor,
-            }
-        )
-    return [
-        row
-        for row in rows
-        if row["jfrog"] or row["competitor"] or row["implication"]
-    ]
-
-
-def _section_readouts(
-    sections: tuple[ReportSection, ...],
-) -> dict[str, list[dict[str, object]]]:
-    readout_specs: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
-        "executive_summary": (
-            ("Thesis", ("strategy-executive-thesis",)),
-            ("JFrog Edge", ("strategy-jfrog-advantage",)),
-            ("Competitor Edge", ("strategy-competitor-strength",)),
-            ("Risk", ("strategy-risk",)),
-            ("Recommended Action", ("strategy-recommended-action",)),
-        ),
-        "company_snapshot": (
-            ("Company Thesis", ("market-company-snapshot-thesis",)),
-            ("JFrog Position", ("market-jfrog-company-position",)),
-            ("Competitor Position", ("market-competitor-company-position",)),
-        ),
-        "market_context": (
-            ("Market Thesis", ("market-context-thesis",)),
-            ("Buyer Segment", ("market-buyer-segment",)),
-            ("GTM Motion", ("market-gtm-motion",)),
-            ("Risk", ("market-risk",)),
-        ),
-        "product_feature_analysis": (
-            ("Product Thesis", ("product-feature-thesis",)),
-            ("JFrog Advantage", ("product-jfrog-advantage",)),
-            ("Competitor Advantage", ("product-competitor-advantage",)),
-            ("Where JFrog Is Exposed", ("product-jfrog-limitation",)),
-            ("Buyer Implication", ("product-buyer-implication",)),
-        ),
-        "technical_teardown": (
-            ("Technical Thesis", ("technical-teardown-thesis",)),
-            ("JFrog Capability", ("technical-jfrog-capability",)),
-            ("Competitor Capability", ("technical-competitor-capability",)),
-            ("Architecture Implication", ("technical-architecture-workflow",)),
-            ("AI / Artifact Governance", ("technical-ai-artifact-governance",)),
-        ),
-        "supply_chain_security": (
-            ("Security Comparison", ("technical-security-comparison",)),
-            ("Technical Risk", ("technical-risk",)),
-        ),
-        "buyer_fit": (
-            ("Buyer-Fit Thesis", ("buyer-fit-thesis",)),
-            ("Where JFrog Wins", ("buyer-jfrog-win-condition",)),
-            ("Where Competitor Wins", ("buyer-competitor-win-condition",)),
-            ("Qualify-Out Signal", ("buyer-qualify-out-signal",)),
-        ),
-        "field_battlecard": (
-            ("Battlecard Thesis", ("field-battlecard-thesis",)),
-            ("Objection Handling", ("field-objection-handling",)),
-            ("Discovery Question", ("field-discovery-question",)),
-            ("Field Action", ("field-action",)),
-        ),
-    }
-    section_rows: dict[str, list[dict[str, object]]] = {}
-    for section in sections:
-        rows: list[dict[str, object]] = []
-        for label, prefixes in readout_specs.get(section.id, ()):
-            claim = _first_claim(section, prefixes)
-            if claim is None:
-                continue
-            rows.append(
-                {
-                    "label": label,
-                    "text": claim.text,
-                    "confidence": claim.confidence,
-                }
-            )
-        if rows:
-            section_rows[section.id] = rows
-    return section_rows
-
-
-def _first_claim_text(section: ReportSection, prefixes: tuple[str, ...]) -> str:
-    claim = _first_claim(section, prefixes)
-    return claim.text if claim is not None else ""
-
-
-def _first_claim(section: ReportSection, prefixes: tuple[str, ...]):
-    return next(
-        (
-            claim
-            for claim in section.claims
-            if claim.claim_type != "missing"
-            and any(claim.id.startswith(prefix) for prefix in prefixes)
-        ),
-        None,
-    )
-
-
-def _cited_source_row(item: object) -> dict[str, object]:
-    title = getattr(item, "title", None) or getattr(item, "publisher", None) or "Source"
-    return {
-        "id": getattr(item, "id"),
-        "company": getattr(item, "company"),
-        "report_section": str(getattr(item, "report_section")).replace("_", " ").title(),
-        "citation": _reader_safe_citation_text(str(title)),
-        "date": getattr(item, "published", None) or getattr(item, "retrieved_at").date(),
-    }
-
-
 def _reader_safe_citation_text(text: str) -> str:
     cleaned = str(text or "").replace("_", " ")
     cleaned = cleaned.replace("official-deep-research", "internal research brief")
@@ -592,6 +800,22 @@ def _reader_safe_body_text(text: str) -> str:
     cleaned = re.sub(r"\b(Evidence|Source|Sources)\s*:\s*", "", cleaned, flags=re.I)
     cleaned = re.sub(r"\[[a-f0-9]{12,40}\]", "", cleaned, flags=re.I)
     return " ".join(cleaned.split())
+
+
+def _trim_to_sentence(text: str) -> str:
+    """Defensive guard against truncated model output: if a string ends mid-word
+    (no terminal punctuation and not a short phrase), trim back to the last
+    complete sentence so the reader never sees a dangling fragment."""
+    compact = " ".join(str(text or "").split())
+    if not compact or compact[-1] in ".!?:\")]}":
+        return compact
+    # Short cells/phrases are fine without terminal punctuation.
+    if len(compact) <= 90:
+        return compact
+    match = list(re.finditer(r"[.!?](?=\s|$)", compact))
+    if match:
+        return compact[: match[-1].end()].rstrip()
+    return compact
 
 
 def _shorten_for_display(text: str, *, limit: int) -> str:

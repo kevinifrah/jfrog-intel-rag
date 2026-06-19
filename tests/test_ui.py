@@ -41,9 +41,11 @@ def test_report_console_serves_registry_html_pdf_and_chat(tmp_path):
     assert page.status_code == 200
     assert "Web check" not in page.text
     assert "Haiku" not in page.text
-    assert "Select Competitor" in page.text
-    assert 'id="report-select"' in page.text
-    assert 'id="report-list"' not in page.text
+    assert "jfrog-logo.svg" in page.text
+    assert 'id="competitor-index"' in page.text
+    assert "Competitors" in page.text
+    # The competitor picker is a typeset index, not a dropdown.
+    assert 'id="report-select"' not in page.text
     registry = client.get("/api/reports").json()
     assert registry["reports"][0]["slug"] == "sonatype"
     assert registry["reports"][0]["executive_status_label"] == "Final report ready"
@@ -105,55 +107,18 @@ def test_report_html_injects_screen_friendly_css(tmp_path):
     assert response.headers["cache-control"] == "no-store"
 
 
-def test_report_viewer_renders_json_sections(tmp_path):
+def test_report_html_serves_the_dossier_artifact(tmp_path):
+    # The console iframe loads the polished on-disk dossier (no separate JSON viewer).
     report_dir = tmp_path / "sonatype"
     report_dir.mkdir()
     (report_dir / "report.html").write_text(
-        "<html><body>PDF-oriented report</body></html>",
-        encoding="utf-8",
-    )
-    (report_dir / "report.json").write_text(
-        json.dumps(
-            {
-                "draft": {
-                    "competitor": "Sonatype",
-                    "generated_at": "2026-06-19T08:00:00Z",
-                    "sections": [
-                        {
-                            "id": "executive_summary",
-                            "title": "Executive Summary",
-                            "agent_name": "Strategy Analyst",
-                            "narrative": "Strategic readout.",
-                            "claims": [
-                                {
-                                    "text": "Sonatype pressures JFrog in open-source governance.",
-                                    "claim_type": "risk",
-                                    "confidence": "medium",
-                                }
-                            ],
-                        }
-                    ],
-                    "scores": [
-                        {
-                            "company": "JFrog",
-                            "category": "Platform Fit",
-                            "value": 4,
-                            "max_value": 5,
-                            "rationale": "Strong artifact governance.",
-                        }
-                    ],
-                },
-                "validation": {"passed": True, "findings": []},
-            }
-        ),
+        "<html><head></head><body>Sonatype dossier</body></html>",
         encoding="utf-8",
     )
     client = TestClient(create_app(report_root=tmp_path))
 
-    response = client.get("/reports/sonatype/html?viewer=1")
+    response = client.get("/reports/sonatype/html")
 
     assert response.status_code == 200
-    assert "PDF-oriented report" not in response.text
-    assert "Executive Summary" in response.text
-    assert "Sonatype pressures JFrog" in response.text
-    assert "Competitive Scorecard" in response.text
+    assert "Sonatype dossier" in response.text
+    assert "data-ui-report-screen" in response.text

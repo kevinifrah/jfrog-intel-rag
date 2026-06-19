@@ -22,6 +22,7 @@ from ci_engine.crews.report.schemas import (
 )
 from ci_engine.llm_json import parse_json_object
 from ci_engine.secrets import get_secret
+from ci_engine.skills import load_skill
 
 STRATEGY_SECTIONS = (
     "executive_summary",
@@ -31,6 +32,13 @@ STRATEGY_SECTIONS = (
     "supply_chain_security",
     "buyer_fit",
     "field_battlecard",
+)
+
+# Analyst frameworks the Strategy Analyst also produces (taught via these skills,
+# emitted into the optional StrategyAnalysis framework fields).
+STRATEGY_FRAMEWORK_SKILLS = (
+    "report-framework-swot",
+    "report-confidence-tiering",
 )
 
 SOURCE_LIST_PROSE_PATTERNS = (
@@ -131,9 +139,13 @@ def build_strategy_prompt(evidence_pack: EvidencePack) -> str:
     payload = build_strategy_prompt_input(evidence_pack)
     schema = StrategyAnalysis.model_json_schema()
     skill = load_agent_skill("strategy_analyst")
+    frameworks = "\n\n".join(load_skill(name) for name in STRATEGY_FRAMEWORK_SKILLS)
     return (
         f"{skill}\n\n"
+        f"{frameworks}\n\n"
         "Write the executive_summary section only.\n"
+        "Also populate the swot and confidence_tiering fields per the framework skills above. "
+        "If the EvidencePack cannot support a framework, return it empty rather than inventing data.\n"
         "Return one strict JSON object and no markdown.\n"
         "Every claim must cite one or more IDs from allowed_evidence_ids.\n"
         "Put evidence IDs only in JSON evidence_ids fields. Never put IDs or "
@@ -233,7 +245,53 @@ def strategy_analysis_to_section(
             "Confidence notes: "
             + " ".join(_presentation_text(note) for note in analysis.confidence_notes)
         ),
+        metadata=_strategy_framework_metadata(analysis),
     )
+
+
+def _strategy_framework_metadata(analysis: StrategyAnalysis) -> dict[str, Any]:
+    """Stash optional analyst frameworks (SWOT, confidence tiering) into section metadata."""
+    meta: dict[str, Any] = {}
+    if analysis.swot is not None:
+        swot = analysis.swot
+
+        def _items(items: Sequence[Any]) -> list[dict[str, Any]]:
+            return [
+                {"text": _presentation_text(item.text), "evidence_ids": list(item.evidence_ids)}
+                for item in items
+            ]
+
+        meta["swot"] = {
+            "vantage": _presentation_text(swot.vantage),
+            "strengths": _items(swot.strengths),
+            "weaknesses": _items(swot.weaknesses),
+            "opportunities": _items(swot.opportunities),
+            "threats": _items(swot.threats),
+        }
+    if analysis.confidence_tiering is not None:
+        tiering = analysis.confidence_tiering
+        meta["confidence_tiering"] = {
+            "tiers": [
+                {"tier": tier.tier, "summary": _presentation_text(tier.summary)}
+                for tier in tiering.tiers
+            ],
+            "spot_check": [_presentation_text(note) for note in tiering.spot_check],
+        }
+    return meta
+
+
+def _strategy_framework_evidence_ids(analysis: StrategyAnalysis) -> list[str]:
+    ids: list[str] = []
+    if analysis.swot is not None:
+        for quadrant in (
+            analysis.swot.strengths,
+            analysis.swot.weaknesses,
+            analysis.swot.opportunities,
+            analysis.swot.threats,
+        ):
+            for item in quadrant:
+                ids.extend(item.evidence_ids)
+    return ids
 
 
 class CrewAIStrategyRunner:
@@ -354,11 +412,15 @@ def _validate_strategy_citations(
     *,
     allowed_evidence_ids: set[str],
 ) -> None:
+    claim_ids = (
+        evidence_id
+        for claim in _strategy_claims(analysis)
+        for evidence_id in claim.evidence_ids
+    )
     unknown_ids = sorted(
         {
             evidence_id
-            for claim in _strategy_claims(analysis)
-            for evidence_id in claim.evidence_ids
+            for evidence_id in (*claim_ids, *_strategy_framework_evidence_ids(analysis))
             if evidence_id not in allowed_evidence_ids
         }
     )
@@ -496,7 +558,7 @@ def _short_text(text: str, *, limit: int = 700) -> str:
 
 _EVIDENCE_ID_RE = re.compile(r"\[[a-f0-9]{12,40}\]", re.IGNORECASE)
 _SOURCE_NUMBER_RE = re.compile(r"\[(?:\d{1,2})(?:\s*,\s*\d{1,2})*\]")
-_AUDIT_LABEL_RE = re.compile(r"(^|\s)(?:evidence|source|sources)\s*:", re.IGNORECASE)
+_AUDIT_LABEL_RE = re.compile(r"^\s*(?:[-*•·]\s*)?(?:evidence|sources?)\s*:", re.IGNORECASE | re.MULTILINE)
 
 
 def _presentation_text(text: str) -> str:

@@ -210,12 +210,15 @@ def technical_analysis_to_sections(
         *_bucket_claims("technical-architecture-workflow", analysis.architecture_and_workflow),
         *_bucket_claims("technical-ai-artifact-governance", analysis.ai_and_artifact_governance),
     ]
+    # Use supply_chain_security_technical_risk if the LLM emitted it (preferred),
+    # otherwise fall back to technical_risks so old reports stay valid.
+    security_risks = analysis.supply_chain_security_technical_risk or analysis.technical_risks
     security_claims = [
         *_bucket_claims(
             "technical-security-comparison",
             analysis.security_capability_comparison,
         ),
-        *_bucket_claims("technical-risk", analysis.technical_risks),
+        *_bucket_claims("technical-risk", security_risks),
     ]
     confidence = " ".join(_presentation_text(note) for note in analysis.confidence_notes)
     return (
@@ -390,6 +393,7 @@ def _technical_claims(analysis: TechnicalAnalysis) -> list[TechnicalClaim]:
         *analysis.ai_and_artifact_governance,
         *analysis.security_capability_comparison,
         *analysis.technical_risks,
+        *analysis.supply_chain_security_technical_risk,
     ]
 
 
@@ -494,7 +498,7 @@ def _short_text(text: str, *, limit: int = 700) -> str:
 
 _EVIDENCE_ID_RE = re.compile(r"\[[a-f0-9]{12,40}\]", re.IGNORECASE)
 _SOURCE_NUMBER_RE = re.compile(r"\[(?:\d{1,2})(?:\s*,\s*\d{1,2})*\]")
-_AUDIT_LABEL_RE = re.compile(r"(^|\s)(?:evidence|source|sources)\s*:", re.IGNORECASE)
+_AUDIT_LABEL_RE = re.compile(r"^\s*(?:[-*•·]\s*)?(?:evidence|sources?)\s*:", re.IGNORECASE | re.MULTILINE)
 
 
 def _presentation_text(text: str) -> str:

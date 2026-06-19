@@ -2,7 +2,7 @@
 
 CI Engine is a competitive-intelligence RAG system for the software supply chain security market. It builds a cited, queryable knowledge base about JFrog and competitors across technical capabilities and business signals.
 
-The system is designed for evidence-backed answers. It does not use model memory at answer time. Acquisition and ingestion may use AI to find, classify, and synthesize source material, but normal retrieval reads only active evidence stored in Cloud SQL.
+The system is designed for evidence-backed answers. It does not use model memory at answer time. Acquisition and ingestion may use AI to find, classify, and synthesize source material, but retrieval reads only active evidence stored in Cloud SQL.
 
 ## What This Project Is For
 
@@ -58,7 +58,7 @@ Important packages:
 - `mcp/` - MCP retrieval server and tools.
 - `crews/report/` - CrewAI-backed competitive report generator, schemas, analysts, checker, and renderer.
 - `chat/` - skill-guided chat planning, MCP execution, Tavily web checks, answer writing, and grounding validation.
-- `ui/` - FastAPI report console, HTML report viewer, PDF download behavior, and chat routes.
+- `ui/` - FastAPI report console with editorial dossier reader, PDF download, and chat drawer.
 - `retrieve/` - read-only retrieval API.
 - `skills/` - model prompts and instruction assets.
 - `synthesize/` - deep map, ingestion pipeline, synthesis, scope closure, and verdict logic.
@@ -100,7 +100,7 @@ Read-only retrieval + MCP tools
 EvidencePack + CrewAI competitive reports
         |
         v
-Report console + grounded MCP chat
+Editorial report console + grounded MCP chat
 ```
 
 ## Quickstart
@@ -257,17 +257,17 @@ Open:
 http://127.0.0.1:8090
 ```
 
-The console reads generated artifacts from `reports/<competitor-slug>/`, lets you select a competitor, embeds the HTML report, downloads the PDF when validation allowed one, and explains unavailable PDFs in plain executive language.
+The console is an editorial two-pane reader: a typeset competitor index on the left and the full dossier in an iframe on the right. Clicking a competitor loads its report; the reader header shows the dossier title, status, and a PDF download link. A fixed "Ask" button (bottom-right circle) opens the chat drawer.
 
-The chat is grounded in read-only MCP retrieval and selected report artifacts. It uses Haiku by default for planner and answer writing, automatically runs bounded Tavily validation when needed, strengthens comparison/weakness questions with balanced retrieval, and fails closed with `not enough evidence` when retrieval cannot support an answer.
+The chat is grounded in read-only MCP retrieval and selected report artifacts. It uses Sonnet for answer writing, automatically runs bounded Tavily validation when needed, strengthens comparison and weakness questions with balanced retrieval, and fails closed with `not enough evidence` when retrieval cannot support an answer. The clear button in the chat drawer header resets the conversation.
 
 ### Generate A Competitive Report
 
-Generate the full `JFrog vs Sonatype` dossier with DB evidence, Tavily validation, CrewAI/Sonnet analysis, HTML, JSON, and PDF:
+Generate the full `JFrog vs Snyk` dossier with DB evidence, Tavily validation, CrewAI/Sonnet analysis, HTML, JSON, and PDF:
 
 ```bash
 .venv/bin/python -m ci_engine.crews.report.run \
-  --competitor Sonatype \
+  --competitor Snyk \
   --draft-mode crew_strategy_market_product_technical_field_scoring \
   --formats json,html,pdf
 ```
@@ -283,7 +283,14 @@ Generate reports for every configured company except JFrog:
   --formats json,html,pdf
 ```
 
-`--all-companies` reads the full `companies:` list in `src/ci_engine/config.yaml` and excludes `JFrog` by default because every report is already `JFrog vs <competitor>`.
+Generate reports for Snyk, Sonatype, and GitHub in one batch:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitors "Snyk,Sonatype,GitHub" \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
 
 Generate reports only for the current `deep_map_now` focus list except JFrog:
 
@@ -305,30 +312,35 @@ Generate reports only for the current `deep_map_now` focus list except JFrog:
   --formats json,html,pdf
 ```
 
-Use `--competitors "Sonatype,Snyk,GitLab"` for a custom comma-separated batch.
-
 Outputs are written to `reports/<competitor-slug>/`:
 
 - `report.json` - frozen `EvidencePack`, report draft, scores, and validation report.
-- `report.html` - executive-grade readable dossier.
+- `report.html` - editorial-grade dossier with numbered citations, structured frameworks, and typeset layout.
 - `report.pdf` - PDF rendering of the validated HTML report.
 
-The report generator fails closed. JSON and HTML are written for review, but PDF rendering is blocked when validation fails. Weak or unresolved evidence appears as diagnostics or evidence gaps instead of confident unsupported claims.
+The report generator fails closed. JSON and HTML are written for review, but PDF rendering is blocked when validation fails.
 
-Validation checks include:
+**Report sections and frameworks produced:**
 
-- the draft references the same frozen `EvidencePack`;
-- every claim and score cites evidence IDs from that pack;
-- critical sections have enough company-specific, DB-backed evidence;
-- Tavily contradictions are resolved before rendering;
-- Product/Feature output contains a product catalog, capability matrix, JFrog wins, competitor wins, JFrog limitations, and buyer implications;
-- report prose is neutral and free of raw source-list or internal-ID artifacts.
+Each dossier includes:
+- **Executive Summary** — strategic thesis, JFrog strengths, competitor strengths, risks, and recommended actions (SWOT, confidence tiering).
+- **Company Snapshot** — business-level position for JFrog and the competitor.
+- **Market And Strategic Context** — market thesis, buyer segments, GTM, ecosystem signals, market risks (PESTEL, Five Forces, positioning map).
+- **Product And Feature Analysis** — product catalog, capability matrix, JFrog advantages, competitor advantages, JFrog limitations, parity gaps, buyer implications.
+- **Technical Teardown** — architectural thesis, platform capabilities, architecture implications, AI/artifact governance, supply chain security comparison.
+- **Buyer Fit Matrix** — buyer scenarios where JFrog wins vs loses, qualify-out signals.
+- **Field Battlecard** — battlecard thesis, objection handling, discovery questions, field actions.
+- **Scoring** — weighted buyer scorecards across three archetypes (security/OSS-led, balanced, platform/consolidation-led).
 
-Critical sections are `executive_summary`, `market_context`, `product_feature_analysis`, and `technical_teardown`. Missing or thin DB evidence in those sections is an error and blocks PDF output. Missing Tavily validation is a warning.
+**Framework consistency across reports:**
 
-Batch commands run competitors sequentially. `--all-companies` generates one complete report at a time, records failures in the final summary, and continues to the next competitor.
+The positioning map uses canonical fixed axes across all dossiers:
+- X: *Supply-chain coverage breadth* (single ecosystem → universal repository + full SDLC)
+- Y: *Security specialization depth* (platform with security add-ons → purpose-built security toolchain)
 
-CrewAI is used for the analyst sections. Report agents run with `verbose=True` so CrewAI execution details appear in the terminal, while `memory=False` and `tracing=False` keep the frozen EvidencePack as the source of truth and avoid CrewAI tracing state.
+This means positioning maps from different reports are directly comparable. The Five Forces also uses a consistent baseline intensity for the software supply chain security market, adjusted only where evidence supports.
+
+**Draft modes:**
 
 `--draft-mode` controls how much of the report is generated by the CrewAI/LLM analyst pipeline:
 
@@ -338,7 +350,7 @@ CrewAI is used for the analyst sections. Report agents run with `verbose=True` s
 - `crew_strategy_market_technical` - adds technical sections.
 - `crew_strategy_market_technical_field` - adds buyer and field sections.
 - `crew_strategy_market_product_technical_field` - adds product/feature analysis.
-- `crew_strategy_market_product_technical_field_scoring` - full current dossier with scoring. Use this for production reports.
+- `crew_strategy_market_product_technical_field_scoring` - full dossier with scoring. Use this for production reports.
 
 For a fast DB-only smoke test:
 
@@ -446,7 +458,7 @@ Current model configuration is in `src/ci_engine/config.yaml`:
 - Web research report generation: `claude-sonnet-4-6`
 - Competitive report agents: `claude-sonnet-4-6`
 - Chat planner: `claude-haiku-4-5`
-- Chat answer writer: `claude-haiku-4-5`
+- Chat answer writer: `claude-sonnet-4-6`
 - Chat fallback: `claude-sonnet-4-6`
 - Report splitting: `claude-haiku-4-5`
 - Relevance scoring: `claude-haiku-4-5`
@@ -552,7 +564,7 @@ Implementation:
 
 Why: external clients can ask targeted questions without guessing internal filters.
 
-### CrewAI Competitive Reports
+### Editorial Competitive Dossiers
 
 Problem: a raw list of evidence sources is not a usable executive competitive-intelligence report.
 
@@ -560,13 +572,27 @@ Implementation:
 
 - `src/ci_engine/crews/report/` builds `JFrog vs <competitor>` dossiers.
 - `EvidencePack` freezes DB evidence, Tavily validation, product catalog, capability matrix, gaps, and confidence metadata.
-- MCP `build_report_section_evidence` batches broad report section retrieval.
-- MCP `build_capability_evidence_matrix` batches product/capability retrieval.
-- CrewAI/Sonnet analyst agents synthesize Strategy, Market, Product/Feature, Technical, Buyer/Field, and Scoring sections.
+- MCP `build_report_evidence_pack` batches broad report section retrieval.
+- CrewAI/Sonnet analyst agents synthesize seven sections: Strategy, Market, Product/Feature, Technical, Buyer/Field, Scoring, and Editor/Auditor.
+- Each section uses a dedicated skill in `src/ci_engine/skills/report-*/SKILL.md` with explicit format instructions, evidence rules, and writing discipline.
+- **Analyst frameworks:** Strategy produces SWOT and confidence tiering; Market produces PESTEL, Five Forces, and a positioning map with canonical cross-report axes; Product produces a capability matrix with cited rows.
 - `Report Checker` validates citations, neutrality, evidence coverage, contradictions, and raw artifact leakage before rendering.
-- The renderer writes `report.json`, `report.html`, and `report.pdf`.
+- The renderer writes `report.json`, `report.html` (typeset single-column dossier with numbered references, SVG positioning map, SWOT grid, PESTEL grid, Five Forces rows, capability matrix, buyer scorecards), and `report.pdf`.
 
-Why: reports need neutral, C-level-readable analysis while preserving auditability and failing closed when evidence is weak.
+Why: reports need neutral, C-level-readable analysis that is structurally comparable across competitors, while preserving auditability and failing closed when evidence is weak.
+
+### Report Console UI
+
+Problem: the report viewer was a generic SaaS dashboard that fought the editorial quality of the dossier.
+
+Implementation:
+
+- The console (`src/ci_engine/ui/`) is an editorial two-pane environment: typeset competitor index (left) + full dossier iframe reader (right).
+- A fixed circle "Ask" button opens an off-canvas chat drawer with a clear button.
+- No dropdown, no shadow cards, no colored pills — warm paper canvas matching the dossier.
+- Chat is grounded in read-only MCP retrieval; answer writing uses Sonnet for richer synthesis.
+
+Why: the chrome around the document should support reading the document, not distract from it.
 
 ## Configuration
 
@@ -615,6 +641,7 @@ Run focused tests:
 .venv/bin/python -m pytest tests/test_coverage_verdict.py
 .venv/bin/python -m pytest tests/test_pipeline.py
 .venv/bin/python -m pytest tests/test_report_crew.py tests/test_mcp_server.py
+.venv/bin/python -m pytest tests/test_ui.py tests/test_chat.py
 ```
 
 ## Safety Notes
