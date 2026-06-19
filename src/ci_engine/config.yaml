@@ -25,10 +25,23 @@ models:
     name: "claude-sonnet-4-6"
     temperature: 0.3
     thinking: high
+  chat_planner:
+    name: "claude-haiku-4-5"
+    temperature: 0.0
+    max_tokens: 1000
+    timeout_s: 8
   chat_answer:
+    name: "claude-haiku-4-5"
+    temperature: 0.1
+    thinking: none
+    max_tokens: 1200
+    timeout_s: 12
+  chat_fallback:
     name: "claude-sonnet-4-6"
-    temperature: 0.2
+    temperature: 0.1
     thinking: medium
+    max_tokens: 1600
+    timeout_s: 20
   web_research:
     name: "claude-sonnet-4-6"
     temperature: 0.0
@@ -62,6 +75,22 @@ retrieval:
   recency_weights:
     enabled: true
     decay_base: 0.5
+
+# --- Interactive report console and grounded chat ---
+chat:
+  report_root: "reports"
+  tavily_default_depth: "ultra-fast"
+  tavily_retry_depth: "fast"
+  tavily_max_results: 3
+  max_evidence_items: 8
+  answer_prompt_max_evidence: 8
+  answer_evidence_text_chars: 700
+  cache:
+    tavily_ttl_s: 900
+
+ui:
+  host: "127.0.0.1"
+  port: 8090
 
 # --- Chunking ---
 chunking:

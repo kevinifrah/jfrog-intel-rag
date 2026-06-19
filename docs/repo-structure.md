@@ -35,6 +35,7 @@ The application package is `src/ci_engine/`.
 ```text
 src/ci_engine/
 ├── acquire/
+├── chat/
 ├── crews/
 ├── db/
 ├── embed/
@@ -98,6 +99,39 @@ MCP server exposing retrieval tools.
 
 Report-support MCP tools are DB-backed and do not browse. They batch evidence retrieval for report sections and product capabilities.
 
+Chat-facing MCP tools are also read-only:
+
+- `get_report_registry` lists generated reports, validation status, generated time, and PDF availability.
+- `search_report_sections` searches generated report sections, scores, missing-data notes, and validation findings.
+- `search_answer_context` provides one fast answer-context call over DB evidence plus optional report artifacts.
+
+### `chat/`
+
+Skill-guided chat orchestration.
+
+- `schemas.py` defines `ChatRequest`, retrieval plans, evidence items, web checks, answers, and grounding findings.
+- `planner.py` builds a strict retrieval plan with Haiku by default and a deterministic fallback for testability.
+- `retrieval.py` executes approved read-only MCP calls and normalizes results.
+- `web.py` performs automatic bounded Tavily `ultra-fast` or `fast` checks without writing snapshots or mutating the DB.
+- `answer.py` writes concise grounded answers and validates citations.
+- `report_store.py` abstracts filesystem report artifacts under `reports/<slug>/`.
+- `service.py` orchestrates planner, strengthened retrieval, autonomous web enrichment, answer writer, and grounding metadata.
+
+### `ui/`
+
+FastAPI report console and chat UI.
+
+- `app.py` defines `GET /`, report artifact APIs, PDF download behavior, `POST /api/chat`, and `WS /ws/chat`.
+- `templates/console.html.j2` is the report viewer shell.
+- `static/app.js` handles report selection and chat interaction.
+- `static/styles.css` contains the light executive UI styling.
+
+Run locally with:
+
+```bash
+.venv/bin/python -m ci_engine.ui
+```
+
 ### `crews/`
 
 CrewAI workflows and report-generation code.
@@ -141,6 +175,11 @@ Current skills include:
 - `coverage-verdict`
 - `grounding-contract`
 - `neutral-ci-contract`
+- `chat-query-planner`
+- `chat-mcp-tool-use`
+- `chat-answer-writer`
+- `chat-web-depth-selector`
+- `chat-grounding-checker`
 - `report-db-retrieval`
 - `report-evidence-quality`
 - `report-extensive-web-search`

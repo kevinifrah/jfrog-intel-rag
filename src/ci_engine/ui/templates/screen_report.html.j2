@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ summary.title }}</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7faf7;
+        --panel: #ffffff;
+        --line: #dfe8e1;
+        --line-strong: #c6d5c7;
+        --ink: #17211c;
+        --muted: #62716a;
+        --accent: #2e7d32;
+        --accent-soft: #eef7ef;
+        --warn: #8a6512;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.52 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      .report {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 36px 36px 60px;
+      }
+      .hero {
+        padding: 28px 0 30px;
+        border-bottom: 1px solid var(--line);
+      }
+      .eyebrow {
+        margin: 0 0 10px;
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(36px, 5vw, 64px);
+        line-height: 1.02;
+        letter-spacing: 0;
+      }
+      h2 {
+        margin: 34px 0 12px;
+        font-size: 24px;
+        line-height: 1.2;
+        letter-spacing: 0;
+      }
+      h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+        letter-spacing: 0;
+      }
+      p { margin: 0 0 12px; }
+      .summary {
+        color: var(--muted);
+        font-size: 17px;
+      }
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 24px;
+      }
+      .meta,
+      .score,
+      .claim,
+      .note {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+      .meta {
+        padding: 14px;
+      }
+      .meta strong,
+      .section-kicker {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: .04em;
+        text-transform: uppercase;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        min-height: 28px;
+        margin-top: 12px;
+        padding: 0 10px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        color: var(--accent);
+        background: #fff;
+        font-weight: 800;
+      }
+      .status.review {
+        color: var(--warn);
+      }
+      .section {
+        padding: 4px 0 28px;
+        border-bottom: 1px solid var(--line);
+      }
+      .section-intro {
+        max-width: 980px;
+        color: var(--muted);
+      }
+      .claims {
+        display: grid;
+        gap: 10px;
+        margin-top: 16px;
+      }
+      .claim {
+        display: grid;
+        grid-template-columns: 5px 1fr;
+        overflow: hidden;
+      }
+      .claim::before {
+        content: "";
+        background: var(--accent);
+      }
+      .claim-body {
+        padding: 13px 15px;
+      }
+      .claim-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 22px;
+        padding: 0 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .scores {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+      }
+      .score {
+        padding: 14px;
+      }
+      .score-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 10px;
+      }
+      .score-value {
+        color: var(--accent);
+        font-size: 22px;
+        font-weight: 800;
+      }
+      .bar {
+        height: 8px;
+        margin: 10px 0;
+        border-radius: 999px;
+        background: #e7efe9;
+        overflow: hidden;
+      }
+      .bar span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--accent);
+      }
+      .note {
+        padding: 14px;
+        color: var(--muted);
+      }
+      @media (max-width: 900px) {
+        .report { padding: 26px 20px 44px; }
+        .meta-grid,
+        .scores {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="report">
+      <header class="hero">
+        <p class="eyebrow">JFrog Competitive Intelligence</p>
+        <h1>{{ summary.title }}</h1>
+        <p class="summary">Strategic business and technical dossier generated from validated evidence.</p>
+        <span class="status{% if not summary.validation_passed %} review{% endif %}">
+          {{ summary.executive_status_label }}
+        </span>
+        <div class="meta-grid">
+          <div class="meta"><strong>Competitor</strong>{{ summary.competitor }}</div>
+          <div class="meta"><strong>Report</strong>{{ "Validated" if summary.validation_passed else "Review draft" }}</div>
+          <div class="meta"><strong>PDF</strong>{{ "Ready" if summary.pdf_available else summary.pdf_label }}</div>
+          <div class="meta"><strong>Generated</strong>{{ summary.generated_at or "No date" }}</div>
+        </div>
+      </header>
+
+      {% if sections %}
+        {% for section in sections %}
+          <section class="section">
+            <span class="section-kicker">{{ section.agent_name or section.skill_name or "Analysis" }}</span>
+            <h2>{{ section.title or section.id }}</h2>
+            {% if section.narrative %}
+              <p class="section-intro">{{ section.narrative }}</p>
+            {% endif %}
+            {% set claims = section.claims if section.claims is sequence else [] %}
+            {% if claims %}
+              <div class="claims">
+                {% for claim in claims %}
+                  <article class="claim">
+                    <div class="claim-body">
+                      <p>{{ claim.text }}</p>
+                      <div class="claim-meta">
+                        {% if claim.claim_type %}<span>{{ claim.claim_type | replace("_", " ") | title }}</span>{% endif %}
+                        {% if claim.confidence %}<span class="pill">{{ claim.confidence | title }} confidence</span>{% endif %}
+                      </div>
+                    </div>
+                  </article>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </section>
+        {% endfor %}
+      {% else %}
+        <section class="section">
+          <h2>Report Content</h2>
+          <div class="note">No report sections were found in the latest JSON artifact.</div>
+        </section>
+      {% endif %}
+
+      {% if scores %}
+        <section class="section">
+          <span class="section-kicker">Scoring</span>
+          <h2>Competitive Scorecard</h2>
+          <div class="scores">
+            {% for score in scores %}
+              {% set max_value = score.max_value or 5 %}
+              {% set value = score.value or 0 %}
+              <article class="score">
+                <div class="score-head">
+                  <h3>{{ score.company }} · {{ score.category }}</h3>
+                  <span class="score-value">{{ value }}/{{ max_value }}</span>
+                </div>
+                <div class="bar"><span style="width: {{ (value / max_value * 100) if max_value else 0 }}%"></span></div>
+                {% if score.rationale %}<p>{{ score.rationale }}</p>{% endif %}
+                {% if score.buyer_archetype %}<p class="section-intro">{{ score.buyer_archetype }}</p>{% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

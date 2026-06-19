@@ -351,6 +351,29 @@
         grid-template-columns: 104px 1fr 24px;
       }
     }
+    @media screen {
+      html,
+      body {
+        min-height: 100%;
+        overflow: auto !important;
+      }
+      * {
+        break-before: auto !important;
+        break-after: auto !important;
+        break-inside: auto !important;
+        page-break-before: auto !important;
+        page-break-after: auto !important;
+        page-break-inside: auto !important;
+        -webkit-column-break-before: auto !important;
+        -webkit-column-break-after: auto !important;
+        -webkit-column-break-inside: auto !important;
+      }
+      .page,
+      .hero,
+      .section {
+        display: block !important;
+      }
+    }
   </style>
 </head>
 <body>

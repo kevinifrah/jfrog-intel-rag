@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import date, datetime, timezone
 
 from starlette.responses import PlainTextResponse
@@ -110,6 +111,106 @@ def test_search_passes_dimensions(monkeypatch):
         "competitors": ["Snyk"],
         "dimensions": ["sbom_generation"],
     }
+
+
+def test_report_registry_and_section_search(tmp_path):
+    report_dir = tmp_path / "sonatype"
+    report_dir.mkdir()
+    (report_dir / "report.html").write_text("<html><body>report</body></html>", encoding="utf-8")
+    (report_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "draft": {
+                    "competitor": "Sonatype",
+                    "generated_at": "2026-06-19T08:00:00Z",
+                    "sections": [
+                        {
+                            "id": "product_feature_analysis",
+                            "title": "Product Analysis",
+                            "claims": [
+                                {
+                                    "id": "claim-1",
+                                    "text": "Repository Firewall blocks risky packages.",
+                                    "confidence": "medium",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "validation": {"passed": True, "findings": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    registry = server.get_report_registry(report_root=str(tmp_path))
+    sections = server.search_report_sections(
+        "repository firewall",
+        competitors=["Sonatype"],
+        report_root=str(tmp_path),
+    )
+
+    assert registry["reports"][0]["slug"] == "sonatype"
+    assert sections["items"][0]["source"] == "report"
+    assert "Firewall" in sections["items"][0]["text"]
+
+
+def test_search_answer_context_blends_db_and_report(monkeypatch, tmp_path):
+    report_dir = tmp_path / "sonatype"
+    report_dir.mkdir()
+    (report_dir / "report.html").write_text("<html><body>report</body></html>", encoding="utf-8")
+    (report_dir / "report.json").write_text(
+        json.dumps(
+            {
+                "draft": {
+                    "competitor": "Sonatype",
+                    "generated_at": "2026-06-19T08:00:00Z",
+                    "sections": [
+                        {
+                            "id": "strategy",
+                            "title": "Strategy",
+                            "claims": [
+                                {
+                                    "id": "claim-1",
+                                    "text": "Sonatype pressures JFrog in open-source governance.",
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "validation": {"passed": True, "findings": []},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_retrieve(**kwargs):
+        return {
+            "chunks": [
+                {
+                    "chunk_id": 1,
+                    "source_id": 2,
+                    "chunk_text": "JFrog has Artifactory evidence.",
+                    "url": "https://jfrog.com/artifactory",
+                    "title": "Artifactory",
+                    "competitor": "JFrog",
+                    "dimension": "artifact_management",
+                    "similarity": 0.8,
+                }
+            ],
+            "missing": [],
+        }
+
+    monkeypatch.setattr(server.retriever, "retrieve", fake_retrieve)
+
+    result = server.search_answer_context(
+        "open-source governance",
+        competitors=["JFrog", "Sonatype"],
+        report_root=str(tmp_path),
+    )
+
+    assert {item["source"] for item in result["items"]} == {"db", "report"}
+    assert result["metadata"]["result_count"] == 2
 
 
 def test_get_competitor_groups_chunks_and_missing_dimensions(monkeypatch):

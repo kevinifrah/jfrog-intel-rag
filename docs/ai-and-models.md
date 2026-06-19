@@ -13,6 +13,7 @@ At answer/retrieval time:
 - retrieval returns stored evidence and missing coverage
 - retrieval does not browse the web
 - retrieval does not ask an LLM to invent facts
+- interactive chat may use an LLM to plan retrieval and write the answer, but only after evidence is retrieved from MCP/report artifacts and optional bounded Tavily checks
 
 AI is used earlier in the pipeline:
 
@@ -23,6 +24,7 @@ AI is used earlier in the pipeline:
 - classifying targeted coverage gaps
 - embedding documents and queries
 - generating validated competitive report sections from a frozen EvidencePack
+- planning and writing grounded chat answers from retrieved evidence
 
 The database remains the primary source of truth. Report generation may attach run-scoped Tavily evidence for enrichment and validation, but that evidence is frozen into the EvidencePack and cited like any other report evidence.
 
@@ -194,6 +196,32 @@ CrewAI runtime settings for report agents:
 - `memory=False` so generated analysis cannot depend on prior CrewAI memory.
 - `tracing=False` so CrewAI observability traces are not emitted by default.
 - no `output_log_file` by default; terminal progress and `report.json` are the audit path.
+
+### Interactive Chat
+
+Config:
+
+- `models.chat_planner.name`: `claude-haiku-4-5`
+- `models.chat_answer.name`: `claude-haiku-4-5`
+- `models.chat_fallback.name`: `claude-sonnet-4-6`
+- planner temperature: `0.0`
+- answer temperature: `0.1`
+
+Code:
+
+- `src/ci_engine/chat/`
+- UI routes in `src/ci_engine/ui/app.py`
+- skills in `src/ci_engine/skills/chat-*/SKILL.md`
+
+Purpose:
+
+- transform a user question into strong read-only MCP queries
+- retrieve from DB evidence and generated report artifacts
+- automatically run bounded Tavily `ultra-fast` or `fast` checks for freshness, product validation, evidence gaps, or contradictions
+- write concise answers with structured sources
+- fail closed with `not enough evidence` when support is missing
+
+Haiku is the default for speed and cost. Sonnet is a fallback for complex synthesis or repeated grounding failures.
 
 ## Deterministic Components
 

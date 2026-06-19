@@ -220,6 +220,52 @@ Tools:
 - `build_capability_evidence_matrix`
 - `build_report_evidence_pack`
 - `source_inventory`
+- `get_report_registry`
+- `search_report_sections`
+- `search_answer_context`
+
+## Report Console And Chat
+
+Run locally:
+
+```bash
+.venv/bin/python -m ci_engine.ui
+```
+
+Default URL:
+
+```text
+http://127.0.0.1:8090
+```
+
+Configured in `src/ci_engine/config.yaml`:
+
+- `ui.host` - defaults to `127.0.0.1`
+- `ui.port` - defaults to `8090`
+- `chat.report_root` - defaults to `reports`
+- `chat.tavily_max_results` - defaults to `3`
+
+The console:
+
+- lists competitors with generated dossiers from `reports/<competitor-slug>/`
+- embeds `report.html`
+- downloads `report.pdf` when present
+- explains unavailable PDFs in plain executive language when validation failed
+- provides grounded Q&A scoped to the selected report by default
+
+Chat retrieval:
+
+- uses `search_answer_context` for fast DB-plus-report context
+- combines vector retrieval, exact keyword/product-name evidence, generated report sections, and coverage checks
+- can search report sections, scores, missing-data notes, and validation findings
+- runs bounded Tavily checks automatically when freshness, gaps, product validation, or contradictions matter
+- returns `not enough evidence` when retrieved evidence cannot support the answer
+
+Chat model defaults:
+
+- planner: `models.chat_planner.name`, currently `claude-haiku-4-5`
+- answer writer: `models.chat_answer.name`, currently `claude-haiku-4-5`
+- fallback: `models.chat_fallback.name`, currently `claude-sonnet-4-6`
 
 ## Competitive Reports
 

@@ -602,6 +602,137 @@ def source_inventory(
     )
 
 
+@mcp.tool()
+def get_report_registry(report_root: str | None = None) -> dict[str, Any]:
+    """List generated report artifacts, validation status, and PDF availability."""
+    from ci_engine.chat.report_store import ReportArtifactStore
+
+    store = ReportArtifactStore(report_root or str(config_get("chat.report_root", "reports")))
+    reports = [summary.model_dump(mode="json") for summary in store.list_reports()]
+    return _jsonable(
+        {
+            "reports": reports,
+            "metadata": {
+                "report_root": str(store.root),
+                "report_count": len(reports),
+            },
+        }
+    )
+
+
+@mcp.tool()
+def search_report_sections(
+    query: str,
+    competitors: list[str] | None = None,
+    sections: list[str] | None = None,
+    max_items: int = 8,
+    report_root: str | None = None,
+) -> dict[str, Any]:
+    """Search generated report sections, scores, gaps, and validation findings."""
+    from ci_engine.chat.report_store import ReportArtifactStore
+
+    store = ReportArtifactStore(report_root or str(config_get("chat.report_root", "reports")))
+    items = store.search_report_sections(
+        _required_text(query, "query"),
+        competitors=_clean_list(competitors),
+        sections=_clean_list(sections),
+        max_items=max(int(max_items or 8), 1),
+    )
+    return _jsonable(
+        {
+            "items": [item.model_dump(mode="json") for item in items],
+            "missing": []
+            if items
+            else [
+                {
+                    "reason": "no_matching_report_sections",
+                    "query": query,
+                    "competitors": _clean_list(competitors),
+                    "sections": _clean_list(sections),
+                }
+            ],
+            "metadata": {
+                "report_root": str(store.root),
+                "result_count": len(items),
+            },
+        }
+    )
+
+
+@mcp.tool()
+def search_answer_context(
+    query: str,
+    competitors: list[str] | None = None,
+    dimensions: list[str] | None = None,
+    axis: str | None = None,
+    include_reports: bool = True,
+    max_items: int = 8,
+    report_root: str | None = None,
+) -> dict[str, Any]:
+    """Fast DB-backed chat retrieval with optional generated-report context."""
+    query_text = _required_text(query, "query")
+    item_limit = max(int(max_items or 8), 1)
+    db_result = search(
+        query_text,
+        axis=_clean_text(axis),
+        competitors=_clean_list(competitors),
+        dimensions=_clean_list(dimensions),
+    )
+    db_items = [
+        item
+        for chunk in db_result.get("chunks", [])[:item_limit]
+        if (item := _chat_evidence_from_chunk(chunk)) is not None
+    ]
+    keyword_items = [
+        item
+        for chunk in _chat_keyword_chunks(
+            query_text,
+            competitors=_clean_list(competitors),
+            dimensions=_clean_list(dimensions),
+            axis=_clean_text(axis),
+            limit=item_limit,
+        )
+        if (item := _chat_evidence_from_chunk(chunk)) is not None
+    ]
+    report_items: list[dict[str, Any]] = []
+    if include_reports:
+        report_result = search_report_sections(
+            query_text,
+            competitors=_clean_list(competitors),
+            sections=None,
+            max_items=max(item_limit // 2, 2),
+            report_root=report_root,
+        )
+        report_items = list(report_result.get("items", []))
+
+    items = _dedupe_chat_items([*db_items, *keyword_items, *report_items])[:item_limit]
+    missing = list(db_result.get("missing", []))
+    if include_reports and not report_items:
+        missing.append(
+            {
+                "reason": "no_matching_report_sections",
+                "query": query_text,
+                "competitors": _clean_list(competitors),
+            }
+        )
+    return _jsonable(
+        {
+            "items": items,
+            "missing": missing,
+            "used_tools": ["search", "search_report_sections"]
+            if include_reports
+            else ["search"],
+            "metadata": {
+                "query": query_text,
+                "db_chunk_count": len(db_result.get("chunks", [])),
+                "keyword_chunk_count": len(keyword_items),
+                "report_item_count": len(report_items),
+                "result_count": len(items),
+            },
+        }
+    )
+
+
 def create_app() -> SharedTokenMiddleware:
     return SharedTokenMiddleware(mcp.streamable_http_app())
 
@@ -834,6 +965,152 @@ def _format_chunk(chunk: Mapping[str, Any]) -> dict[str, Any]:
         )
         if key in chunk
     }
+
+
+def _chat_evidence_from_chunk(chunk: Mapping[str, Any]) -> dict[str, Any] | None:
+    text = _clean_quote(chunk.get("chunk_text"), limit=1000)
+    if not text:
+        return None
+    source_id = _optional_int(chunk.get("source_id"))
+    chunk_id = _optional_int(chunk.get("chunk_id"))
+    url = _clean_text(chunk.get("url"))
+    return {
+        "id": _stable_id("chat-db", source_id, chunk_id, text),
+        "source": "db",
+        "text": text,
+        "company": _clean_text(chunk.get("competitor")),
+        "title": _clean_text(chunk.get("title")),
+        "url": url,
+        "publisher": _publisher(url) if url else None,
+        "section": None,
+        "dimension": _clean_text(chunk.get("dimension")),
+        "source_id": source_id,
+        "chunk_id": chunk_id,
+        "published": _jsonable(chunk.get("publish_date")),
+        "confidence": _confidence_from_similarity(chunk.get("similarity")),
+        "metadata": {
+            "axis": _clean_text(chunk.get("axis")),
+            "doc_type": _clean_text(chunk.get("doc_type")),
+            "source_kind": _clean_text(chunk.get("source_kind")),
+            "retrieval_mode": "chat_answer_context",
+        },
+    }
+
+
+def _chat_keyword_chunks(
+    query: str,
+    *,
+    competitors: Sequence[str] | None,
+    dimensions: Sequence[str] | None,
+    axis: str | None,
+    limit: int,
+) -> list[Mapping[str, Any]]:
+    competitor_filter = _clean_list(competitors)
+    dimension_filter = _clean_list(dimensions)
+    if not competitor_filter:
+        return []
+    try:
+        chunks = repository.active_chunks(
+            competitors=competitor_filter,
+            axis=axis,
+            dimensions=dimension_filter,
+        )
+    except Exception:
+        return []
+    terms = _chat_search_terms(query)
+    ranked = [
+        (score, chunk)
+        for chunk in chunks
+        if (score := _chat_keyword_score(chunk, terms)) > 0
+    ]
+    ranked.sort(
+        key=lambda pair: (
+            pair[0],
+            _source_quality_score(pair[1]),
+            _iso_text(pair[1].get("publish_date")),
+            int(pair[1].get("chunk_id") or 0),
+        ),
+        reverse=True,
+    )
+    return [chunk for _, chunk in ranked[: max(int(limit or 8), 1)]]
+
+
+def _chat_search_terms(query: str) -> tuple[str, ...]:
+    stop_words = {
+        "about",
+        "against",
+        "compare",
+        "compared",
+        "does",
+        "have",
+        "main",
+        "what",
+        "where",
+        "which",
+        "with",
+    }
+    normalized = "".join(
+        char.lower() if char.isalnum() else " " for char in str(query or "")
+    )
+    terms = [
+        token
+        for token in normalized.split()
+        if len(token) >= 3 and token not in stop_words
+    ]
+    return tuple(dict.fromkeys(terms))
+
+
+def _chat_keyword_score(
+    chunk: Mapping[str, Any],
+    terms: Sequence[str],
+) -> int:
+    text = " ".join(
+        str(chunk.get(key) or "")
+        for key in (
+            "chunk_text",
+            "title",
+            "url",
+            "dimension",
+            "doc_type",
+            "source_kind",
+            "competitor",
+        )
+    ).lower()
+    score = sum(2 for term in terms if term in text)
+    for phrase in (
+        "artifact",
+        "artifactory",
+        "xray",
+        "curation",
+        "nexus",
+        "firewall",
+        "lifecycle",
+        "sbom",
+        "sca",
+        "reachability",
+        "malicious",
+        "malware",
+        "cve",
+        "policy",
+        "license",
+    ):
+        if phrase in terms and phrase in text:
+            score += 3
+    return score
+
+
+def _dedupe_chat_items(items: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in items:
+        item_id = str(item.get("id") or "")
+        text = str(item.get("text") or "")
+        key = (item_id, text[:240])
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(item))
+    return deduped
 
 
 def _section_chunk_candidates(

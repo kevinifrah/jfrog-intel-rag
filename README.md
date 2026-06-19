@@ -36,6 +36,7 @@ The core business use case is competitive intelligence for JFrog across software
 - [AI and Models](docs/ai-and-models.md) - what AI manages, which models are used, and what is deterministic.
 - [Operations](docs/operations.md) - setup, commands, safe rollout, and troubleshooting.
 - [Report Generator](docs/report-generator.md) - CrewAI competitive dossiers, EvidencePack flow, validation, and PDF/HTML/JSON outputs.
+- [Chat and Report Console](docs/chat-and-report-console.md) - local report viewer UI and grounded MCP-backed Q&A chat.
 
 ## Repository Map
 
@@ -56,6 +57,8 @@ Important packages:
 - `embed/` - Vertex AI / Gemini embedding client.
 - `mcp/` - MCP retrieval server and tools.
 - `crews/report/` - CrewAI-backed competitive report generator, schemas, analysts, checker, and renderer.
+- `chat/` - skill-guided chat planning, MCP execution, Tavily web checks, answer writing, and grounding validation.
+- `ui/` - FastAPI report console, HTML report viewer, PDF download behavior, and chat routes.
 - `retrieve/` - read-only retrieval API.
 - `skills/` - model prompts and instruction assets.
 - `synthesize/` - deep map, ingestion pipeline, synthesis, scope closure, and verdict logic.
@@ -95,6 +98,9 @@ Read-only retrieval + MCP tools
         |
         v
 EvidencePack + CrewAI competitive reports
+        |
+        v
+Report console + grounded MCP chat
 ```
 
 ## Quickstart
@@ -231,8 +237,29 @@ The server exposes tools including:
 - `build_capability_evidence_matrix`
 - `build_report_evidence_pack`
 - `source_inventory`
+- `get_report_registry`
+- `search_report_sections`
+- `search_answer_context`
 
 `search` accepts `dimensions`, so callers can scope retrieval to exact ontology dimensions.
+
+### Run The Report Console And Chat
+
+Start the local UI:
+
+```bash
+.venv/bin/python -m ci_engine.ui
+```
+
+Open:
+
+```text
+http://127.0.0.1:8090
+```
+
+The console reads generated artifacts from `reports/<competitor-slug>/`, lets you select a competitor, embeds the HTML report, downloads the PDF when validation allowed one, and explains unavailable PDFs in plain executive language.
+
+The chat is grounded in read-only MCP retrieval and selected report artifacts. It uses Haiku by default for planner and answer writing, automatically runs bounded Tavily validation when needed, strengthens comparison/weakness questions with balanced retrieval, and fails closed with `not enough evidence` when retrieval cannot support an answer.
 
 ### Generate A Competitive Report
 
@@ -418,6 +445,9 @@ Current model configuration is in `src/ci_engine/config.yaml`:
 
 - Web research report generation: `claude-sonnet-4-6`
 - Competitive report agents: `claude-sonnet-4-6`
+- Chat planner: `claude-haiku-4-5`
+- Chat answer writer: `claude-haiku-4-5`
+- Chat fallback: `claude-sonnet-4-6`
 - Report splitting: `claude-haiku-4-5`
 - Relevance scoring: `claude-haiku-4-5`
 - Ingestion synthesis: `claude-opus-4-8`
@@ -436,6 +466,7 @@ Deterministic code handles:
 - Conservative verdict guards
 - EvidencePack schema validation
 - Report checker gates
+- Chat grounding checker gates
 - HTML/PDF/JSON rendering
 
 See [AI and Models](docs/ai-and-models.md) for details.

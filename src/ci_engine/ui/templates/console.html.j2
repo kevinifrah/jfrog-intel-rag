@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ title }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260619-report-viewer-2">
+  </head>
+  <body>
+    <main class="shell">
+      <aside class="report-rail" aria-label="Reports">
+        <header class="rail-header">
+          <div>
+            <p class="eyebrow">Competitive Intelligence</p>
+            <h1>Select Competitor</h1>
+          </div>
+          <button id="refresh-reports" class="icon-button" type="button" title="Refresh reports" aria-label="Refresh reports">&#8635;</button>
+        </header>
+        <div class="competitor-picker">
+          <label for="report-select">Competitor</label>
+          <select id="report-select" aria-describedby="report-select-help">
+            <option value="">Loading competitors...</option>
+          </select>
+          <p id="report-select-help" class="picker-help">Validated reports appear first.</p>
+          <div id="selected-report-card" class="selected-report-card" aria-live="polite"></div>
+        </div>
+      </aside>
+
+      <section class="viewer-panel" aria-label="Selected report">
+        <header class="viewer-toolbar">
+          <div class="selected-copy">
+            <p id="selected-status" class="eyebrow">Choose a competitor</p>
+            <h2 id="selected-title">Competitive dossier</h2>
+          </div>
+          <a id="pdf-link" class="download-button disabled" href="#" aria-disabled="true">Download PDF</a>
+        </header>
+        <div id="pdf-blocker" class="status-banner hidden"></div>
+        <iframe id="report-frame" title="Report viewer"></iframe>
+      </section>
+
+      <aside class="chat-panel" aria-label="Report chat">
+        <header class="chat-header">
+          <div>
+            <p class="eyebrow">Executive Q&A</p>
+            <h2>Ask About The Competitor</h2>
+          </div>
+        </header>
+        <div id="chat-log" class="chat-log" aria-live="polite"></div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" rows="3" placeholder="Ask about positioning, product strengths, weaknesses, risks, or what JFrog should do next."></textarea>
+          <div class="chat-actions">
+            <span class="chat-note">Answers use the latest trusted evidence available.</span>
+            <button type="submit">Ask</button>
+          </div>
+        </form>
+      </aside>
+    </main>
+    <script src="{{ url_for('static', path='/app.js') }}?v=20260619-report-viewer-2"></script>
+  </body>
+</html>
