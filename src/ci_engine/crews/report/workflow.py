@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 from ci_engine.crews.report.analysts import build_analyst_sections, build_score_items
 from ci_engine.crews.report.buyer_field import (
@@ -55,6 +56,7 @@ from ci_engine.crews.report.technical import (
 )
 
 DraftMode = str
+ProgressFn = Callable[[str], None]
 
 
 def generate_report(
@@ -74,7 +76,14 @@ def generate_report(
     technical_runner: TechnicalRunner | None = None,
     buyer_field_runner: BuyerFieldRunner | None = None,
     scoring_runner: ScoringRunner | None = None,
+    progress: ProgressFn | None = None,
 ) -> ReportRunResult:
+    _emit_progress(
+        progress,
+        competitor,
+        "building evidence pack "
+        + ("from DB + Tavily validation" if include_web else "from DB only"),
+    )
     evidence_pack = build_evidence_pack_for_competitor(
         competitor,
         focus=focus,
@@ -83,6 +92,12 @@ def generate_report(
         include_web=include_web,
         web_search=web_search,
     )
+    _emit_progress(
+        progress,
+        competitor,
+        _evidence_pack_summary(evidence_pack),
+    )
+    _emit_progress(progress, competitor, f"building draft ({draft_mode})")
     draft = build_report_draft(
         evidence_pack,
         sections=sections,
@@ -93,10 +108,22 @@ def generate_report(
         technical_runner=technical_runner,
         buyer_field_runner=buyer_field_runner,
         scoring_runner=scoring_runner,
+        progress=progress,
     )
+    _emit_progress(progress, competitor, "running Report Checker")
     validation = check_report(evidence_pack, draft)
+    _emit_progress(
+        progress,
+        competitor,
+        f"checker complete: passed={validation.passed}; findings={len(validation.findings)}",
+    )
     renders = ()
     if out_dir is not None:
+        _emit_progress(
+            progress,
+            competitor,
+            f"rendering artifacts ({','.join(formats)}) to {Path(out_dir)}",
+        )
         renders = tuple(
             write_report_artifacts(
                 evidence_pack,
@@ -105,6 +132,12 @@ def generate_report(
                 out_dir=Path(out_dir),
                 formats=formats,
             )
+        )
+        _emit_progress(
+            progress,
+            competitor,
+            "render complete: "
+            + ", ".join(f"{render.format}:{render.status}" for render in renders),
         )
     return ReportRunResult(
         evidence_pack=evidence_pack,
@@ -125,6 +158,7 @@ def build_report_draft(
     technical_runner: TechnicalRunner | None = None,
     buyer_field_runner: BuyerFieldRunner | None = None,
     scoring_runner: ScoringRunner | None = None,
+    progress: ProgressFn | None = None,
 ) -> ReportDraft:
     if draft_mode not in {
         "deterministic",
@@ -158,6 +192,11 @@ def build_report_draft(
         "evidence_count": len(evidence_pack.items),
         "quality_notes": list(evidence_pack.quality_notes),
     }
+    _emit_progress(
+        progress,
+        evidence_pack.competitor,
+        f"deterministic section skeleton ready: {len(report_sections)} sections",
+    )
     if draft_mode in {
         "crew_strategy",
         "crew_strategy_market",
@@ -167,6 +206,7 @@ def build_report_draft(
         "crew_strategy_market_product_technical_field_scoring",
     } and _section_requested("executive_summary", sections):
         try:
+            _emit_progress(progress, evidence_pack.competitor, "starting Strategy Analyst")
             strategy_analysis = run_strategy_analysis(
                 evidence_pack,
                 runner=strategy_runner,
@@ -176,10 +216,16 @@ def build_report_draft(
                 strategy_analysis_to_section(evidence_pack, strategy_analysis),
             )
             metadata["strategy_generation_status"] = "written"
+            _emit_progress(progress, evidence_pack.competitor, "finished Strategy Analyst")
         except StrategyGenerationError as exc:
             _replace_section(report_sections, _failed_strategy_section(str(exc)))
             metadata["strategy_generation_status"] = "failed"
             metadata["strategy_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Strategy Analyst failed: {exc}",
+            )
 
     if draft_mode in {
         "crew_strategy_market",
@@ -189,6 +235,7 @@ def build_report_draft(
         "crew_strategy_market_product_technical_field_scoring",
     } and _market_sections_requested(sections):
         try:
+            _emit_progress(progress, evidence_pack.competitor, "starting Market Analyst")
             market_analysis = run_market_analysis(
                 evidence_pack,
                 runner=market_runner,
@@ -196,17 +243,28 @@ def build_report_draft(
             for section in market_analysis_to_sections(evidence_pack, market_analysis):
                 _replace_section(report_sections, section)
             metadata["market_generation_status"] = "written"
+            _emit_progress(progress, evidence_pack.competitor, "finished Market Analyst")
         except MarketGenerationError as exc:
             for section in _failed_market_sections(str(exc)):
                 _replace_section(report_sections, section)
             metadata["market_generation_status"] = "failed"
             metadata["market_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Market Analyst failed: {exc}",
+            )
 
     if draft_mode in {
         "crew_strategy_market_product_technical_field",
         "crew_strategy_market_product_technical_field_scoring",
     } and _product_feature_sections_requested(sections):
         try:
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                "starting Product/Feature Analyst",
+            )
             product_feature_analysis = run_product_feature_analysis(
                 evidence_pack,
                 runner=product_feature_runner,
@@ -219,10 +277,20 @@ def build_report_draft(
                 ),
             )
             metadata["product_feature_generation_status"] = "written"
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                "finished Product/Feature Analyst",
+            )
         except ProductFeatureGenerationError as exc:
             _replace_section(report_sections, _failed_product_feature_section(str(exc)))
             metadata["product_feature_generation_status"] = "failed"
             metadata["product_feature_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Product/Feature Analyst failed: {exc}",
+            )
 
     if draft_mode in {
         "crew_strategy_market_technical",
@@ -231,6 +299,7 @@ def build_report_draft(
         "crew_strategy_market_product_technical_field_scoring",
     } and _technical_sections_requested(sections):
         try:
+            _emit_progress(progress, evidence_pack.competitor, "starting Technical Analyst")
             technical_analysis = run_technical_analysis(
                 evidence_pack,
                 runner=technical_runner,
@@ -238,11 +307,17 @@ def build_report_draft(
             for section in technical_analysis_to_sections(evidence_pack, technical_analysis):
                 _replace_section(report_sections, section)
             metadata["technical_generation_status"] = "written"
+            _emit_progress(progress, evidence_pack.competitor, "finished Technical Analyst")
         except TechnicalGenerationError as exc:
             for section in _failed_technical_sections(str(exc)):
                 _replace_section(report_sections, section)
             metadata["technical_generation_status"] = "failed"
             metadata["technical_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Technical Analyst failed: {exc}",
+            )
 
     if draft_mode in {
         "crew_strategy_market_technical_field",
@@ -250,6 +325,7 @@ def build_report_draft(
         "crew_strategy_market_product_technical_field_scoring",
     } and _buyer_field_sections_requested(sections):
         try:
+            _emit_progress(progress, evidence_pack.competitor, "starting Buyer/Field Analyst")
             buyer_field_analysis = run_buyer_field_analysis(
                 evidence_pack,
                 runner=buyer_field_runner,
@@ -257,15 +333,22 @@ def build_report_draft(
             for section in buyer_field_analysis_to_sections(evidence_pack, buyer_field_analysis):
                 _replace_section(report_sections, section)
             metadata["buyer_field_generation_status"] = "written"
+            _emit_progress(progress, evidence_pack.competitor, "finished Buyer/Field Analyst")
         except BuyerFieldGenerationError as exc:
             for section in _failed_buyer_field_sections(str(exc)):
                 _replace_section(report_sections, section)
             metadata["buyer_field_generation_status"] = "failed"
             metadata["buyer_field_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Buyer/Field Analyst failed: {exc}",
+            )
 
     score_items = build_score_items(evidence_pack)
     if draft_mode == "crew_strategy_market_product_technical_field_scoring":
         try:
+            _emit_progress(progress, evidence_pack.competitor, "starting Scoring Agent")
             scoring_analysis = run_scoring_analysis(
                 evidence_pack,
                 runner=scoring_runner,
@@ -273,10 +356,21 @@ def build_report_draft(
             score_items = scoring_analysis.scores
             metadata["scoring_generation_status"] = "written"
             metadata["scoring_confidence_notes"] = list(scoring_analysis.confidence_notes)
+            _emit_progress(progress, evidence_pack.competitor, "finished Scoring Agent")
         except ScoringGenerationError as exc:
             score_items = ()
             metadata["scoring_generation_status"] = "failed"
             metadata["scoring_generation_error"] = str(exc)
+            _emit_progress(
+                progress,
+                evidence_pack.competitor,
+                f"Scoring Agent failed: {exc}",
+            )
+    _emit_progress(
+        progress,
+        evidence_pack.competitor,
+        f"draft ready: sections={len(report_sections)}; scores={len(score_items)}",
+    )
 
     return ReportDraft(
         competitor=evidence_pack.competitor,
@@ -285,6 +379,41 @@ def build_report_draft(
         scores=score_items,
         missing_data=evidence_pack.gaps,
         metadata=metadata,
+    )
+
+
+def _emit_progress(
+    progress: ProgressFn | None,
+    competitor: str,
+    message: str,
+) -> None:
+    if progress is None:
+        return
+    progress(f"[{competitor}] {message}")
+
+
+def _evidence_pack_summary(evidence_pack: EvidencePack) -> str:
+    db_items = sum(1 for item in evidence_pack.items if item.source == "db")
+    tavily_items = sum(1 for item in evidence_pack.items if item.source == "tavily")
+    capability_rows = (
+        len(evidence_pack.capability_matrix.rows)
+        if evidence_pack.capability_matrix is not None
+        else 0
+    )
+    product_count = len(evidence_pack.product_catalog)
+    readiness = (
+        f"; readiness={evidence_pack.readiness.status}"
+        if evidence_pack.readiness is not None
+        else ""
+    )
+    return (
+        "evidence pack frozen: "
+        f"items={len(evidence_pack.items)} "
+        f"(db={db_items}, tavily={tavily_items}); "
+        f"gaps={len(evidence_pack.gaps)}; "
+        f"products={product_count}; "
+        f"capability_rows={capability_rows}"
+        f"{readiness}"
     )
 
 

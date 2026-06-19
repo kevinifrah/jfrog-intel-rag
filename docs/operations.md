@@ -232,6 +232,52 @@ Generate a full `JFrog vs Sonatype` report:
   --formats json,html,pdf
 ```
 
+`--competitor` generates one report for one competitor.
+
+Generate reports for all configured companies except JFrog:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --all-companies \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+`--all-companies` reads the full `companies:` list in `src/ci_engine/config.yaml` and excludes `JFrog` by default because every report is already `JFrog vs <competitor>`.
+
+Batch mode is sequential. It runs one complete `JFrog vs <competitor>` report at a time, writes that competitor's artifacts, records pass/fail status, and then moves to the next competitor. A failed competitor does not stop the rest of the batch.
+
+Generate reports only for the current `deep_map_now` focus list except JFrog:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --deep-map-now \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+`--deep-map-now` reads the configured `deep_map_now:` subset. It does not run deep map and it is not automatically triggered when deep map finishes.
+
+To run ingestion first and then generate reports for the same focus list:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map
+
+.venv/bin/python -m ci_engine.crews.report.run \
+  --deep-map-now \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+Generate a comma-separated custom batch:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitors "Sonatype,Snyk,GitLab" \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
 Default output:
 
 ```text
@@ -249,6 +295,8 @@ The full mode uses:
 - CrewAI/Sonnet analyst sections
 - Report Checker validation
 - HTML/PDF rendering
+
+The terminal shows progress for each major stage. CrewAI analyst crews run with `verbose=True`, so CrewAI execution details should appear alongside report progress lines. CrewAI memory and tracing remain disabled for report generation.
 
 Fast DB-only smoke test:
 
@@ -271,6 +319,8 @@ Useful modes:
 - `crew_strategy_market_product_technical_field` - adds product/feature analysis.
 - `crew_strategy_market_product_technical_field_scoring` - full current dossier with scoring.
 
+Use `crew_strategy_market_product_technical_field_scoring` for real report generation. The smaller modes are mainly for incremental testing and debugging.
+
 PDF rendering uses WeasyPrint. If PDF output is skipped because the dependency is missing:
 
 ```bash
@@ -279,12 +329,43 @@ uv sync
 
 The renderer sets a writable cache directory under `/tmp` for WeasyPrint/Fontconfig.
 
-Report validation must pass before PDF rendering. If validation fails, inspect:
+Report validation must pass before PDF rendering. JSON and HTML can still be written for review, but PDF status becomes `blocked` when `validation.passed=false`.
+
+If validation fails, inspect:
 
 - `validation.findings` in `report.json`
 - `evidence_pack.gaps`
 - `evidence_pack.metadata.section_batch_coverage`
 - `evidence_pack.capability_matrix.rows`
+
+Quick validation summary:
+
+```bash
+jq '{
+  passed: .validation.passed,
+  errors: ([.validation.findings[]? | select(.severity=="error")] | length),
+  warnings: ([.validation.findings[]? | select(.severity=="warning")] | length)
+}' reports/github/report.json
+```
+
+List blocking errors:
+
+```bash
+jq -r '.validation.findings[]? |
+  select(.severity=="error") |
+  "- [\(.code)] section=\(.section_id // "n/a") :: \(.message)"' \
+  reports/github/report.json
+```
+
+Common blocking causes:
+
+- `missing_db_evidence` - a critical section has no DB-backed evidence for JFrog or the competitor.
+- `evidence_readiness_weak` - evidence readiness is too weak in a critical section.
+- `unsupported_claim` or `broken_citation` - the draft has an uncited or invalidly cited claim.
+- `unsupported_market_share_claim` - market share appears without market-share evidence.
+- `product_feature_generation_failed` or `missing_product_feature_matrix` - the Product/Feature analyst output failed the strict product-analysis contract.
+
+Critical sections are `executive_summary`, `market_context`, `product_feature_analysis`, and `technical_teardown`. Missing DB evidence in these sections is an error; missing Tavily validation is a warning.
 
 ## Heal Dimensions
 

@@ -269,7 +269,7 @@ class CrewAITechnicalRunner:
             backstory=load_agent_skill("technical_analyst"),
             llm=llm,
             allow_delegation=False,
-            verbose=False,
+            verbose=True,
             memory=False,
         )
         task = Task(
@@ -281,7 +281,7 @@ class CrewAITechnicalRunner:
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
-            verbose=False,
+            verbose=True,
             memory=False,
             tracing=False,
         )

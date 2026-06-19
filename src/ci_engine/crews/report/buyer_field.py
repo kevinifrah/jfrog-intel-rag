@@ -270,7 +270,7 @@ class CrewAIBuyerFieldRunner:
             backstory=load_agent_skill("buyer_field_analyst"),
             llm=llm,
             allow_delegation=False,
-            verbose=False,
+            verbose=True,
             memory=False,
         )
         task = Task(
@@ -282,7 +282,7 @@ class CrewAIBuyerFieldRunner:
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
-            verbose=False,
+            verbose=True,
             memory=False,
             tracing=False,
         )

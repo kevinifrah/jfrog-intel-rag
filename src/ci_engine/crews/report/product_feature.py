@@ -331,7 +331,7 @@ class CrewAIProductFeatureRunner:
             backstory=load_agent_skill("product_feature_analyst"),
             llm=llm,
             allow_delegation=False,
-            verbose=False,
+            verbose=True,
             memory=False,
         )
         task = Task(
@@ -343,7 +343,7 @@ class CrewAIProductFeatureRunner:
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
-            verbose=False,
+            verbose=True,
             memory=False,
             tracing=False,
         )

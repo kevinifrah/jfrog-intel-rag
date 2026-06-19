@@ -263,7 +263,7 @@ class CrewAIStrategyRunner:
             backstory=load_agent_skill("strategy_analyst"),
             llm=llm,
             allow_delegation=False,
-            verbose=False,
+            verbose=True,
             memory=False,
         )
         task = Task(
@@ -275,7 +275,7 @@ class CrewAIStrategyRunner:
             agents=[agent],
             tasks=[task],
             process=Process.sequential,
-            verbose=False,
+            verbose=True,
             memory=False,
             tracing=False,
         )

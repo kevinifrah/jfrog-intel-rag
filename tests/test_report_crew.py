@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 import json
+from types import SimpleNamespace
 
+from ci_engine.crews.report import run as report_run
 from ci_engine.crews.report.checker import check_report
 from ci_engine.crews.report.capabilities import (
     CAPABILITY_DEFINITIONS,
@@ -37,6 +39,7 @@ from ci_engine.crews.report.schemas import (
     ReportClaim,
     ReportDraft,
     ReportSection,
+    RenderResult,
     TargetedSearchAttempt,
 )
 from ci_engine.crews.report.sections import section_specs
@@ -728,6 +731,98 @@ def test_report_agent_skills_load_from_skill_folder():
         direct_body = load_skill(skill_name)
         assert direct_body
         assert "EvidencePack" in body or "evidence" in body.lower()
+
+
+def test_report_run_selects_configured_competitors(monkeypatch):
+    args = SimpleNamespace(
+        competitors=None,
+        all_companies=True,
+        deep_map_now=False,
+        include_jfrog=False,
+        competitor="Sonatype",
+    )
+    monkeypatch.setattr(
+        report_run,
+        "tracked_companies",
+        lambda: ["JFrog", "Sonatype", "Snyk", "Sonatype"],
+    )
+
+    assert report_run._selected_competitors(args) == ["Sonatype", "Snyk"]
+
+    args = SimpleNamespace(
+        competitors=None,
+        all_companies=False,
+        deep_map_now=True,
+        include_jfrog=False,
+        competitor="Sonatype",
+    )
+    monkeypatch.setattr(
+        report_run,
+        "config_get",
+        lambda path, default=None: ["JFrog", "GitLab"] if path == "deep_map_now" else default,
+    )
+
+    assert report_run._selected_competitors(args) == ["GitLab"]
+
+
+def test_report_run_batch_main_uses_configured_companies(monkeypatch, tmp_path, capsys):
+    calls = []
+
+    def fake_generate_report(
+        competitor,
+        *,
+        focus=None,
+        out_dir=None,
+        formats=(),
+        include_web=True,
+        draft_mode="deterministic",
+    ):
+        calls.append(
+            {
+                "competitor": competitor,
+                "focus": focus,
+                "out_dir": out_dir,
+                "formats": formats,
+                "include_web": include_web,
+                "draft_mode": draft_mode,
+            }
+        )
+        return SimpleNamespace(
+            validation=SimpleNamespace(passed=True),
+            evidence_pack=SimpleNamespace(items=[object()], gaps=[]),
+            renders=(
+                RenderResult(
+                    format="json",
+                    status="written",
+                    path=f"{out_dir}/report.json",
+                ),
+            ),
+        )
+
+    monkeypatch.setattr(report_run, "tracked_companies", lambda: ["JFrog", "Sonatype", "Snyk"])
+    monkeypatch.setattr(report_run, "generate_report", fake_generate_report)
+
+    report_run.main(
+        [
+            "--all-companies",
+            "--no-web",
+            "--formats",
+            "json,html",
+            "--draft-mode",
+            "deterministic",
+            "--out-dir",
+            str(tmp_path),
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["passed"] is True
+    assert payload["count"] == 2
+    assert [call["competitor"] for call in calls] == ["Sonatype", "Snyk"]
+    assert calls[0]["out_dir"] == str(tmp_path / "sonatype")
+    assert calls[1]["out_dir"] == str(tmp_path / "snyk")
+    assert calls[0]["formats"] == ("json", "html")
+    assert calls[0]["include_web"] is False
 
 
 def test_evidence_pack_combines_db_and_tavily_and_freezes():

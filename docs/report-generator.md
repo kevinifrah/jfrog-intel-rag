@@ -190,6 +190,15 @@ The report model is configured in `src/ci_engine/config.yaml`:
 
 - `models.report.name`: `claude-sonnet-4-6`
 
+CrewAI runs inside a Python-controlled report workflow. Each analyst is executed as a dedicated CrewAI single-agent crew, in sequence, against the frozen `EvidencePack`. This is intentional: it keeps the evidence boundary explicit and lets the Report Checker gate every section before PDF rendering.
+
+Report agents currently use:
+
+- `verbose=True` - CrewAI execution details are printed in the terminal.
+- `memory=False` - CrewAI memory is disabled so prior runs cannot leak into the current report.
+- `tracing=False` - CrewAI tracing integrations are disabled.
+- no `output_log_file` - CrewAI does not write a dedicated execution log file unless this is added later.
+
 ## Neutrality Rules
 
 The report must be useful to JFrog by being neutral and precise.
@@ -213,6 +222,54 @@ The checker blocks or flags:
 - source-list prose such as "current section uses"
 - raw evidence IDs in the rendered narrative
 
+## Validation And PDF Gate
+
+`check_report(evidence_pack, draft)` is the quality gate between generated analysis and the executive PDF.
+
+Validation runs after the frozen `EvidencePack` is built and after the analyst draft is assembled.
+
+The validator checks:
+
+- EvidencePack identity: the draft must reference the same frozen pack that was used to generate it.
+- Citation integrity: section, claim, and score evidence IDs must exist in the frozen pack.
+- Claim support: every normal claim needs cited evidence; missing-data claims must explicitly say `no recent data found`.
+- Critical-section coverage: `executive_summary`, `market_context`, `product_feature_analysis`, and `technical_teardown` must have enough evidence for both JFrog and the selected competitor.
+- DB grounding: missing DB-backed evidence in a critical section is an error; missing DB-backed evidence in a non-critical section is a warning.
+- Web validation: missing Tavily validation is a warning when web search is enabled.
+- Contradictions: Tavily evidence classified as `contradicts_db` is an error until resolved.
+- Readiness: weak readiness in a critical section is an error.
+- Mode-specific contracts: Strategy, Market, Product/Feature, Technical, Buyer/Field, and Scoring sections must satisfy their schema and neutrality requirements.
+- Presentation hygiene: raw internal IDs, source paths, keyword artifacts, and source-list prose are blocked from executive-facing narrative.
+
+Evidence thresholds:
+
+- Critical sections require at least `2` evidence items per company.
+- Non-critical sections require at least `1` evidence item per company.
+
+Validation result:
+
+- `validation.passed=true` means no error-level findings were produced. Warnings can still exist.
+- `validation.passed=false` means at least one error exists.
+
+Rendering behavior:
+
+- JSON is written for audit and debugging.
+- HTML can still be written for review.
+- PDF is blocked when `validation.passed=false`.
+
+This is why a report can have `report.json` and `report.html` but a PDF status of `blocked`.
+
+Common blocker codes:
+
+- `missing_db_evidence` - a section lacks DB-backed evidence for the competitor or JFrog.
+- `evidence_readiness_weak` - a critical section is too weak to certify.
+- `broken_citation` or `broken_section_citation` - the draft cites evidence IDs not present in the pack.
+- `unsupported_claim` - a claim has no evidence citation.
+- `unresolved_web_contradiction` - Tavily evidence contradicts DB evidence and needs resolution.
+- `product_feature_generation_failed` - the Product/Feature analyst returned output that failed strict JSON or CI-synthesis checks.
+- `missing_product_feature_matrix` - Product/Feature mode lacks the required cited capability matrix.
+- `unsupported_market_share_claim` - a claim mentions market share without cited market-share evidence or a missing-data caveat.
+
 ## Output Files
 
 Default output location:
@@ -223,7 +280,7 @@ reports/<competitor-slug>/
 
 Files:
 
-- `report.json` - EvidencePack, draft, validation report, scores, and metadata.
+- `report.json` - EvidencePack, draft, scores inside the draft, validation report, and metadata.
 - `report.html` - polished web dossier.
 - `report.pdf` - PDF version generated from validated HTML.
 
@@ -250,6 +307,52 @@ Full Sonatype report:
   --formats json,html,pdf
 ```
 
+`--competitor` generates one report for one competitor.
+
+All configured competitors except JFrog:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --all-companies \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+`--all-companies` reads `companies:` from `src/ci_engine/config.yaml` and excludes `JFrog` by default.
+
+Batch mode is sequential. It completes the full flow for one competitor before moving to the next competitor. A failure for one competitor is captured in the final summary and does not prevent later competitors from running.
+
+Current `deep_map_now` focus list except JFrog:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --deep-map-now \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+`--deep-map-now` reads `deep_map_now:` from `config.yaml`. This is only a report selector. It does not run the deep-map ingestion process, and deep map does not automatically trigger report generation.
+
+To deep-map first and then report on the same focus list:
+
+```bash
+.venv/bin/python -m ci_engine.synthesize.deep_map
+
+.venv/bin/python -m ci_engine.crews.report.run \
+  --deep-map-now \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
+Custom comma-separated batch:
+
+```bash
+.venv/bin/python -m ci_engine.crews.report.run \
+  --competitors "Sonatype,Snyk,GitLab" \
+  --draft-mode crew_strategy_market_product_technical_field_scoring \
+  --formats json,html,pdf
+```
+
 DB-only smoke test:
 
 ```bash
@@ -260,6 +363,28 @@ DB-only smoke test:
   --no-web \
   --out-dir /private/tmp/ci-report-smoke
 ```
+
+## Draft Modes
+
+`--draft-mode` controls how much of the report is generated by the CrewAI/LLM analyst pipeline.
+
+Use this for real reports:
+
+```bash
+--draft-mode crew_strategy_market_product_technical_field_scoring
+```
+
+Available modes:
+
+- `deterministic` - fast smoke mode with no live analyst generation.
+- `crew_strategy` - Strategy Analyst only.
+- `crew_strategy_market` - Strategy plus company and market sections.
+- `crew_strategy_market_technical` - adds technical sections.
+- `crew_strategy_market_technical_field` - adds buyer and field sections.
+- `crew_strategy_market_product_technical_field` - adds product/feature analysis.
+- `crew_strategy_market_product_technical_field_scoring` - full current dossier with scoring.
+
+The smaller modes exist for incremental testing, validation, and debugging. Production-quality dossiers should use the full scoring mode.
 
 Render PDF from an existing validated `report.json`:
 

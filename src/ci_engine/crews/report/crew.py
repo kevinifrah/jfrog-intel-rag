@@ -64,7 +64,7 @@ def create_report_crew() -> Any:
             role=key.replace("_", " ").title(),
             goal=f"Execute the {key} step for the JFrog competitive report.",
             backstory=load_agent_skill(key),
-            verbose=False,
+            verbose=True,
         )
         for key in REPORT_AGENT_SKILLS
     }
@@ -83,7 +83,7 @@ def create_report_crew() -> Any:
         agents=list(agents.values()),
         tasks=tasks,
         process=Process.sequential,
-        verbose=False,
+        verbose=True,
     )
 
 

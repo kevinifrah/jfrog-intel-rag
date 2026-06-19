@@ -188,6 +188,13 @@ Purpose:
 
 The report generator can use Tavily during EvidencePack construction for public web enrichment and targeted validation. Tavily findings are captured as report-run evidence and do not become permanent DB evidence unless explicitly ingested later.
 
+CrewAI runtime settings for report agents:
+
+- `verbose=True` so CrewAI agent/task execution is visible in the terminal.
+- `memory=False` so generated analysis cannot depend on prior CrewAI memory.
+- `tracing=False` so CrewAI observability traces are not emitted by default.
+- no `output_log_file` by default; terminal progress and `report.json` are the audit path.
+
 ## Deterministic Components
 
 The following are controlled by code and config, not by model judgment.
