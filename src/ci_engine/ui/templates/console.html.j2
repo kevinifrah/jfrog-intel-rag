@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="icon" href="{{ url_for('static', path='/jfrog-logo.svg') }}">
-    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260620-picker-1">
+    <link rel="stylesheet" href="{{ url_for('static', path='/styles.css') }}?v=20260620-picker-2">
   </head>
   <body>
     <header class="masthead">
@@ -26,10 +26,14 @@
           <div class="reader-id">
             <p id="reader-status" class="reader-status">Choose a competitor</p>
             <div class="picker-row">
-              <label class="picker-label" for="report-select">Competitor</label>
-              <select id="report-select" class="picker" aria-label="Select a competitor">
-                <option value="">Loading&hellip;</option>
-              </select>
+              <div class="picker-wrap">
+                <select id="report-select" class="picker" aria-label="Select a competitor">
+                  <option value="">Loading&hellip;</option>
+                </select>
+                <svg class="picker-caret" width="13" height="9" viewBox="0 0 13 9" aria-hidden="true">
+                  <path d="M1.5 1.5l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
               <button id="refresh-reports" class="ghost-btn" type="button" title="Refresh" aria-label="Refresh">&#8635;</button>
             </div>
           </div>
@@ -68,6 +72,6 @@
       </form>
     </aside>
 
-    <script src="{{ url_for('static', path='/app.js') }}?v=20260620-picker-1"></script>
+    <script src="{{ url_for('static', path='/app.js') }}?v=20260620-picker-2"></script>
   </body>
 </html>
