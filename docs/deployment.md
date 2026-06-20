@@ -15,15 +15,19 @@ Both images read from the same backing services:
 - **Vertex AI** — `gemini-embedding-001` embeddings via ADC.
 
 ```text
-                       ┌─────────────────────┐
-   browser ───────────▶│ Cloud Run: ci-ui    │──┐
-                       └─────────────────────┘  │
-                       ┌─────────────────────┐  │   Cloud SQL (ci-db / ci)
-   MCP clients ───────▶│ Cloud Run: ci-mcp   │──┼──▶ Secret Manager
-                       └─────────────────────┘  │   Vertex AI (embeddings)
-                                                 │
-                            both run as ci-engine-sa
+                          ┌─────────────────────┐
+   browser + SSO ────────▶│ Cloud Run: ci-ui    │──┐
+                          └─────────────────────┘  │
+                          ┌─────────────────────┐  │   Cloud SQL (ci-db / ci)
+   OpenClaw/MCP clients ─▶│ Cloud Run: ci-mcp   │──┼──▶ Secret Manager
+                          └─────────────────────┘  │   Vertex AI (embeddings)
+                                                    │
+                               both run as ci-engine-sa
 ```
+
+OpenClaw itself is managed manually outside this repo. Configure OpenClaw to use the deployed
+`ci-mcp` service as its MCP tool server; OpenClaw owns Telegram pairing, channel auth, and any
+conversation/session state.
 
 > Acquisition/ingestion (deep map, scope closure, healing) is **not** a long-running service. Run those
 > as local CLIs or one-off Cloud Run Jobs against the same Cloud SQL instance — they are the only
@@ -141,7 +145,7 @@ gcloud run deploy ci-ui \
   --service-account="${SA}" \
   --add-cloudsql-instances=jfrog-intel-rag:europe-west1:ci-db \
   --memory=2Gi --cpu=2 --timeout=600 \
-  --allow-unauthenticated
+  --no-allow-unauthenticated
 ```
 
 Secrets are read straight from Secret Manager via the runtime SA's ADC, so no key needs to be
@@ -152,8 +156,32 @@ passed. If you prefer to inject them as env vars instead (the app falls back to
   --set-secrets=ANTHROPIC_KEY=anthropic-key:latest,TAVILY_KEY=tavily-key:latest,CONTEXT7_KEY=context7-key:latest
 ```
 
-> Drop `--allow-unauthenticated` if the console should be private; front it with IAP or require
-> authenticated invokers instead.
+Enable Google SSO with direct Cloud Run IAP:
+
+```bash
+PROJECT_ID=jfrog-intel-rag
+PROJECT_NUMBER=$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')
+IAP_SA="service-${PROJECT_NUMBER}@gcp-sa-iap.iam.gserviceaccount.com"
+
+gcloud run services update ci-ui \
+  --region=europe-west1 \
+  --iap
+
+gcloud run services add-iam-policy-binding ci-ui \
+  --region=europe-west1 \
+  --member="serviceAccount:${IAP_SA}" \
+  --role="roles/run.invoker"
+
+gcloud iap web add-iam-policy-binding \
+  --resource-type=cloud-run \
+  --service=ci-ui \
+  --region=europe-west1 \
+  --member="group:<allowed-google-group@example.com>" \
+  --role="roles/iap.httpsResourceAccessor"
+```
+
+Test the console in a private browser window with an allowed Google account, then with an
+unapproved account. OpenClaw must not depend on `ci-ui` or browser SSO; it should use `ci-mcp`.
 
 ## Deploy the MCP service
 
@@ -176,6 +204,188 @@ MCP env vars (see [operations.md](operations.md#mcp-server)):
 
 Prefer `--no-allow-unauthenticated` plus Cloud Run IAM invoker bindings, and keep
 `MCP_SHARED_TOKEN` set as defense in depth.
+
+## Manual OpenClaw setup against MCP
+
+OpenClaw setup remains manual. CI Engine does not run a Python Telegram adapter and does not add
+Telegram-specific DB tables. OpenClaw should be the channel/agent layer, and `ci-mcp` should be its
+read-only evidence tool server.
+
+Current target shape:
+
+- Gateway host: Compute Engine VM `openclaw-gateway` in `europe-west1-b`.
+- Runtime: Docker Compose running the OpenClaw Gateway on `127.0.0.1:18789`.
+- Operator access: SSH local port forward to the Gateway control UI.
+- Model: Anthropic Claude Sonnet through OpenClaw provider auth.
+- Evidence flow: `ci-mcp` first; web search/fetch only to validate freshness, resolve
+  contradictions, or cover evidence gaps.
+
+Open the local control UI through an SSH tunnel:
+
+```bash
+gcloud compute ssh openclaw-gateway \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b \
+  -- -N -L 18789:127.0.0.1:18789 -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+```
+
+Then browse to `http://127.0.0.1:18789`.
+
+### Prepare `ci-mcp` for OpenClaw
+
+Keep `MCP_SHARED_TOKEN` set on `ci-mcp`. Include the OpenClaw Gateway host/origin in the MCP
+transport allowlists:
+
+```bash
+gcloud run services update ci-mcp \
+  --region=europe-west1 \
+  --update-env-vars=MCP_ALLOWED_HOSTS=<ci-mcp-host>,<openclaw-host>,MCP_ALLOWED_ORIGINS=<openclaw-origin>
+```
+
+If OpenClaw calls `ci-mcp` over Cloud Run IAM, grant the OpenClaw runtime service account
+`roles/run.invoker` on `ci-mcp`. If OpenClaw cannot mint Google identity tokens, keep the service
+reachable according to your network design and require `MCP_SHARED_TOKEN` as the application-layer
+guard.
+
+```bash
+gcloud run services add-iam-policy-binding ci-mcp \
+  --region=europe-west1 \
+  --member="serviceAccount:<openclaw-runtime-sa>" \
+  --role="roles/run.invoker"
+```
+
+OpenClaw MCP endpoint:
+
+```text
+https://<ci-mcp-url>/mcp
+Authorization: Bearer <MCP_SHARED_TOKEN>
+```
+
+Register the MCP server from inside the OpenClaw container. Retrieve the token from Secret Manager
+outside the VM, paste it into the prompt below, and do not write the secret value into docs:
+
+```bash
+cd ~/openclaw
+
+read -rsp "Paste MCP token: " MCP_SHARED_TOKEN; echo
+
+MCP_CONFIG="$(MCP_SHARED_TOKEN="$MCP_SHARED_TOKEN" python3 -c 'import json,os; print(json.dumps({
+  "url": "https://ci-mcp-v4vkevgy2a-ew.a.run.app/mcp",
+  "transport": "streamable-http",
+  "headers": {
+    "Authorization": "Bearer " + os.environ["MCP_SHARED_TOKEN"]
+  },
+  "timeout": 60,
+  "connectTimeout": 15,
+  "supportsParallelToolCalls": True
+}))')"
+
+docker compose exec -T openclaw-gateway \
+  openclaw mcp set ci-engine "$MCP_CONFIG"
+
+unset MCP_SHARED_TOKEN MCP_CONFIG
+```
+
+Filter OpenClaw's MCP exposure to the chat-relevant tools:
+
+```bash
+docker compose exec -T openclaw-gateway \
+  openclaw mcp tools ci-engine \
+  --include 'search_answer_context,search,get_competitor,compare_competitors,compare_dimension,coverage_matrix,coverage_status,latest_updates,get_report_registry,search_report_sections,source_inventory,get_source_detail,find_evidence_gaps'
+
+docker compose exec -T openclaw-gateway openclaw mcp doctor ci-engine --probe
+docker compose exec -T openclaw-gateway openclaw mcp reload
+```
+
+Useful tool entrypoints for assistant behavior:
+
+- `search_answer_context` - broad answer context across DB evidence plus optional report artifacts
+- `search_report_sections` - report-specific context
+- `get_report_registry` - available report slugs and metadata
+- `search`, `compare_dimension`, `coverage_matrix`, `source_inventory`, `get_source_detail` - targeted follow-up tools
+- `latest_updates`, `find_evidence_gaps`, `coverage_status` - freshness and gap checks before
+  web validation
+
+### Manual Telegram BotFather setup
+
+For the current VM/Docker Gateway, Telegram does not require a public Cloud Run webhook. OpenClaw
+can receive Telegram messages through its channel runtime from the VM, so the VM only needs outbound
+internet access plus the BotFather token in OpenClaw configuration.
+
+1. In Telegram, message `@BotFather`.
+2. Run `/newbot`, choose a display name and username, and give the token to OpenClaw's Telegram
+   channel configuration. Do not commit or document the token value.
+3. Run `/setcommands` in BotFather using the commands OpenClaw should expose. At minimum:
+
+   ```text
+   start - Start the CI assistant
+   help - Show help
+   ```
+
+4. For groups, run `/setprivacy` and keep privacy enabled unless every group message should reach
+   OpenClaw.
+5. Complete OpenClaw's Telegram DM pairing/allowlist flow manually in the OpenClaw Gateway.
+
+### Manual OpenClaw Gateway setup
+
+1. Install/run OpenClaw using its official local Node flow, Docker flow, or Compute Engine Gateway
+   flow.
+2. Open the OpenClaw Gateway control UI.
+3. Add/configure the Telegram channel with the BotFather token.
+4. Add/configure the CI Engine MCP server:
+
+   ```text
+   URL: https://<ci-mcp-url>/mcp
+   Auth: Bearer <MCP_SHARED_TOKEN>
+   ```
+
+5. Configure OpenClaw instructions so answers are grounded in MCP results from `ci-mcp` and do not
+   rely on model memory for competitive facts. The versioned OpenClaw mission prompt lives at
+   [ops/openclaw/AGENTS.md](../ops/openclaw/AGENTS.md).
+6. Tell OpenClaw to start with `search_answer_context` for ordinary questions, then use the
+   targeted MCP tools for follow-up evidence. When MCP evidence is missing, stale, contradictory,
+   or high impact, let OpenClaw validate and cover gaps with web search/fetch and label those
+   findings as external validation.
+7. Test the same question in `ci-ui` and OpenClaw/Telegram. Expect the same evidence base and MCP
+   tools, though wording may differ because OpenClaw is now the answer writer.
+
+Install the versioned mission prompt into the Gateway workspace:
+
+```bash
+# From a local checkout.
+gcloud compute scp ops/openclaw/AGENTS.md \
+  openclaw-gateway:~/openclaw/AGENTS.md \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b
+
+# On the VM.
+cd ~/openclaw
+docker compose cp AGENTS.md openclaw-gateway:/home/node/.openclaw/workspace/AGENTS.md
+docker compose exec -u root -T openclaw-gateway \
+  chown node:node /home/node/.openclaw/workspace/AGENTS.md
+
+docker compose exec -T openclaw-gateway openclaw config patch --stdin <<'JSON5'
+{
+  agents: {
+    defaults: {
+      workspace: "/home/node/.openclaw/workspace",
+      skipBootstrap: true,
+      contextInjection: "always"
+    }
+  }
+}
+JSON5
+
+docker compose restart openclaw-gateway
+```
+
+If OpenClaw tool policy is tightened, keep both `ci-engine__*` MCP tools and web validation tools
+available. In sandboxed sessions, OpenClaw-managed MCP tools may also require `bundle-mcp` or
+`group:plugins` in the sandbox tool allowlist.
+
+If the full OpenClaw Gateway runs on Cloud Run, use `--min-instances=1 --max-instances=1
+--no-cpu-throttling`. If it needs durable local state, prefer OpenClaw's official Compute
+Engine/Docker deployment instead of Cloud Run.
 
 ## Redeploy
 

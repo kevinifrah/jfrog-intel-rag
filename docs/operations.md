@@ -267,6 +267,53 @@ Chat model defaults:
 - answer writer: `models.chat_answer.name`, currently `claude-sonnet-4-6`
 - fallback: `models.chat_fallback.name`, currently `claude-sonnet-4-6`
 
+## OpenClaw
+
+OpenClaw is configured manually outside this repo. It should connect to the deployed `ci-mcp`
+service at `/mcp` and use the same read-only tool surface as chat retrieval:
+
+```text
+https://<ci-mcp-url>/mcp
+Authorization: Bearer <MCP_SHARED_TOKEN>
+```
+
+OpenClaw owns Telegram pairing, allowlists, and conversation/session state. CI Engine does not add
+Telegram-specific tables or run a separate Telegram webhook adapter.
+
+The OpenClaw agent mission prompt is versioned at [ops/openclaw/AGENTS.md](../ops/openclaw/AGENTS.md).
+Install it into the OpenClaw workspace before enabling Telegram so the agent answers as the JFrog
+Competitive Intelligence assistant rather than the default OpenClaw bootstrap persona.
+
+Current operating target:
+
+- VM: `openclaw-gateway` in `europe-west1-b`
+- runtime: Docker Compose, service `openclaw-gateway`
+- local UI tunnel: `127.0.0.1:18789`
+- model: Anthropic Claude Sonnet
+- Telegram ingress: OpenClaw channel runtime from the VM; no public CI Engine webhook
+- evidence policy: MCP first; web search/fetch only to validate freshness, resolve contradictions,
+  or cover evidence gaps
+
+Useful checks:
+
+```bash
+gcloud compute ssh openclaw-gateway \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b \
+  --command='cd ~/openclaw && docker compose ps && docker compose logs --tail=120 openclaw-gateway'
+```
+
+Open the control UI tunnel from a local terminal and leave it running:
+
+```bash
+gcloud compute ssh openclaw-gateway \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b \
+  -- -N -L 18789:127.0.0.1:18789 -o ServerAliveInterval=30 -o ServerAliveCountMax=3
+```
+
+Then browse to `http://127.0.0.1:18789`.
+
 ## Competitive Reports
 
 Generate a full `JFrog vs Sonatype` report:
@@ -521,9 +568,9 @@ Safe operating rule:
 
 ## Deployment
 
-The hosted footprint is two Cloud Run services running as `ci-engine-sa`: the report console (UI)
-and the MCP server. Both are built from the Dockerfiles in `ops/` and reach Cloud SQL, Secret
-Manager, and Vertex AI exactly as the local CLIs do.
+The hosted CI Engine footprint is two Cloud Run services running as `ci-engine-sa`: the report
+console (`ci-ui`) and the MCP server (`ci-mcp`). They are built from the Dockerfiles in `ops/` and
+reach Cloud SQL, Secret Manager, and Vertex AI exactly as the local CLIs do.
 
 Build and roll out a new UI revision:
 
@@ -537,12 +584,13 @@ gcloud run deploy ci-ui \
   --region=europe-west1 \
   --service-account=ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com \
   --add-cloudsql-instances=jfrog-intel-rag:europe-west1:ci-db \
-  --allow-unauthenticated
+  --no-allow-unauthenticated
 ```
 
 Redeploy = rebuild the affected image, then `gcloud run deploy` again (new revision, prior flags
-preserved). `config.yaml` and the `reports/` artifacts are baked into the image, so config changes
-and newly generated dossiers need a rebuild + redeploy of the UI image.
+preserved). `ci-ui` and `ci-mcp` can scale to zero unless persistent OpenClaw/MCP sessions require
+`ci-mcp --min-instances=1`. `config.yaml` and the `reports/` artifacts are baked into the image, so
+config changes and newly generated dossiers need a rebuild + redeploy of the affected image.
 
 Full guide — APIs, Artifact Registry, IAM roles, the MCP service env vars, local container runs, and
 rollback — is in [deployment.md](deployment.md).

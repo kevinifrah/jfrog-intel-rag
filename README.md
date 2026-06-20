@@ -35,7 +35,7 @@ The core business use case is competitive intelligence for JFrog across software
 - [Architecture](docs/architecture.md) - data flow, DB schema, ontology, retrieval, and coverage status design.
 - [AI and Models](docs/ai-and-models.md) - what AI manages, which models are used, and what is deterministic.
 - [Operations](docs/operations.md) - setup, commands, safe rollout, and troubleshooting.
-- [Deployment](docs/deployment.md) - Docker images, Cloud Run deploy/redeploy, and rollback.
+- [Deployment](docs/deployment.md) - Cloud Run deploy/redeploy, IAP/SSO, OpenClaw VM setup, and rollback.
 - [Report Generator](docs/report-generator.md) - CrewAI competitive dossiers, EvidencePack flow, validation, and PDF/HTML/JSON outputs.
 - [Chat and Report Console](docs/chat-and-report-console.md) - local report viewer UI and grounded MCP-backed Q&A chat.
 
@@ -46,7 +46,7 @@ Top-level:
 - `src/ci_engine/` - application code.
 - `tests/` - unit and integration-style tests.
 - `raw_snapshots/` - fetched/source snapshots for provenance.
-- `ops/` - operational or deployment assets.
+- `ops/` - operational or deployment assets, including Cloud Run Dockerfiles and OpenClaw runtime prompts.
 - `CLAUDE.md` - operating constitution and non-negotiable design rules.
 - `pyproject.toml` and `uv.lock` - packaging and dependency management.
 - `deep_map.log` - local run log. It is not the source of truth.
@@ -629,7 +629,7 @@ Configured defaults:
 - Database: `ci`
 - IAM DB user: `ci-engine-sa@jfrog-intel-rag.iam`
 - Service account: `ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com`
-- Secrets: `anthropic-key`, `tavily-key`, `context7-key`, `telegram-token`
+- Secrets: `anthropic-key`, `tavily-key`, `context7-key`, `mcp-shared-token`, `telegram-token`
 
 Secret values must never be committed or documented.
 
@@ -641,6 +641,12 @@ CI Engine ships as two container images that run on **Cloud Run**, both running 
 - **MCP server** — `ops/Dockerfile.mcp`; serves read-only retrieval/report tools (`python -m ci_engine.mcp.server`).
 
 Both honor Cloud Run's `PORT`, read secrets from Secret Manager via the runtime SA's ADC, and reach Cloud SQL through the Cloud SQL Python Connector with IAM auth.
+
+OpenClaw is not a CI Engine Cloud Run service. The current target is a manually managed Compute
+Engine/Docker Gateway named `openclaw-gateway`; it connects to `ci-mcp` as an MCP client, uses
+Claude Sonnet as the answering model, and owns Telegram pairing/channel state. Its versioned mission
+prompt lives in [ops/openclaw/AGENTS.md](ops/openclaw/AGENTS.md): use MCP evidence first, then web
+search only to validate freshness, resolve contradictions, or cover gaps.
 
 Build and deploy (after one-time project/IAM setup — see the deployment guide):
 
@@ -656,12 +662,12 @@ gcloud run deploy ci-ui \
   --region=europe-west1 \
   --service-account=ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com \
   --add-cloudsql-instances=jfrog-intel-rag:europe-west1:ci-db \
-  --allow-unauthenticated
+  --no-allow-unauthenticated
 ```
 
-To **redeploy**, rebuild the affected image and run `gcloud run deploy` again — it rolls out a new revision and keeps previously set flags. Note that `config.yaml` and the `reports/` artifacts are baked into the image, so config changes and newly generated dossiers require a rebuild + redeploy of the UI image.
+To **redeploy**, rebuild the affected image and run `gcloud run deploy` again — it rolls out a new revision and keeps previously set flags. Note that `config.yaml` and the `reports/` artifacts are baked into the image, so config changes and newly generated dossiers require a rebuild + redeploy of the affected image.
 
-Full instructions — APIs, Artifact Registry, IAM roles, the MCP service, local container runs, rollback, and the report-artifact caveat — are in [Deployment](docs/deployment.md).
+Full instructions — APIs, Artifact Registry, IAM roles, IAP/SSO, the MCP service, manual OpenClaw setup against MCP, local container runs, rollback, and the report-artifact caveat — are in [Deployment](docs/deployment.md).
 
 ## Testing
 

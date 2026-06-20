@@ -67,6 +67,12 @@ PDF behavior:
 
 If evidence is missing or weak, chat returns `not enough evidence` rather than inventing.
 
+OpenClaw should use the same read-only MCP tool surface through the deployed `ci-mcp` service. It
+owns Telegram/channel behavior and should ground competitive answers in MCP results rather than
+model memory. Its operating rule is MCP first, then web search/fetch only to validate freshness,
+resolve contradictions, or cover evidence gaps. The OpenClaw runtime prompt is versioned at
+[ops/openclaw/AGENTS.md](../ops/openclaw/AGENTS.md).
+
 ## Chat Skills
 
 Chat instructions live in `src/ci_engine/skills/`:

@@ -20,7 +20,7 @@ This document explains where the important parts of CI Engine live and where to 
 - `CLAUDE.md` - operating constitution. It defines core rules such as grounded answers, config as source of truth, and prompt storage in skills.
 - `README.md` - project entry point.
 - `docs/` - deeper documentation for architecture, business context, AI/model behavior, operations, deployment, and repo structure.
-- `ops/` - deployment assets: `Dockerfile.ui` and `Dockerfile.mcp` (Cloud Run images). The root `Dockerfile` mirrors `Dockerfile.ui`. See `docs/deployment.md`.
+- `ops/` - deployment/runtime assets: `Dockerfile.ui`, `Dockerfile.mcp`, and OpenClaw runtime prompts under `ops/openclaw/`. The root `Dockerfile` mirrors `Dockerfile.ui`. See `docs/deployment.md`.
 - `pyproject.toml` - package metadata and dependencies.
 - `uv.lock` - locked Python dependency graph.
 - `raw_snapshots/` - saved source snapshots for provenance. These are evidence artifacts, not the query-time source of truth.
