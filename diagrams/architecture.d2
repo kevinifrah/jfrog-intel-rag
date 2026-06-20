@@ -1,0 +1,349 @@
+# CI Engine - Architecture (Detailed)
+# Strict-grounding RAG. Write path solid (one direction); read/query path dashed.
+
+direction: down
+
+classes: {
+  config: {
+    style.stroke: "#5D4037"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  acquire: {
+    style.stroke: "#C62828"
+    style.stroke-width: 2
+    shape: cloud
+  }
+  python: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  embed: {
+    style.stroke: "#00838F"
+    style.stroke-width: 2
+    shape: hexagon
+  }
+  kb: {
+    style.stroke: "#E65100"
+    style.stroke-width: 2
+    shape: cylinder
+  }
+  mcp: {
+    style.stroke: "#AD1457"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  reader: {
+    style.stroke: "#3949AB"
+    style.stroke-width: 2
+    style.border-radius: 12
+  }
+  skill: {
+    style.stroke: "#7B1FA2"
+    style.stroke-width: 2
+  }
+  external: {
+    style.stroke: "#C62828"
+    style.stroke-width: 2
+    shape: cloud
+  }
+}
+
+# ---- Config / shared kernel ----
+kernel: Config & Ontology (shared kernel) {
+  style.stroke: "#5D4037"
+  style.stroke-dash: 3
+
+  config: config.yaml + config.py {
+    class: config
+  }
+  ontology: ontology.py\n(dimensions / aliases) {
+    class: config
+  }
+  coverage: dimension_coverage.py {
+    class: config
+  }
+}
+
+skills: Skills (SKILL.md prompts) {
+  class: skill
+}
+
+# ---- External internet (acquisition only) ----
+internet: Internet (acquisition only) {
+  style.stroke: "#C62828"
+  style.stroke-dash: 3
+
+  anthropic: Anthropic\n(web_search + Claude) {
+    class: external
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+  tavily: Tavily {
+    class: external
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+  context7: Context7 {
+    class: external
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+}
+
+# ---- Acquisition layer ----
+acquire: acquire/ (ONLY internet-touching) {
+  style.stroke: "#C62828"
+
+  web_lane: web_lane.py\n(web research + splitter) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  tavily_lane: tavily_lane.py {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  context7_lane: context7_lane.py {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  relevance: relevance.py\n(score candidate) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  snapshots: snapshots.py\n(provenance) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+}
+
+# ---- Synthesis / ingestion ----
+synthesize: synthesize/ (write path) {
+  style.stroke: "#1565C0"
+
+  deep_map: deep_map.py\n(orchestrating CLI) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  pipeline: pipeline.py\n(ingest_candidate) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  compiler: compiler.py\n(synthesis model -> cited evidence) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  coverage_verdict: coverage_verdict.py /\nclose_coverage_scope.py {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+}
+
+# ---- Embedding ----
+embed: embed/gemini.py\n(Vertex AI gemini-embedding-001, 1536 dims) {
+  class: embed
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+# ---- Data layer ----
+db: db/ (single source of truth) {
+  style.stroke: "#E65100"
+
+  repository: repository.py\n(data-access facade) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  cloudsql: Cloud SQL ci-db / ci\n(Postgres + pgvector HNSW) {
+    class: kb
+    icon: https://icons.terrastruct.com/dev%2Fpostgresql.svg
+  }
+  heal: heal_dimensions /\nheal_coverage_status (non-destructive) {
+    class: python
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+}
+
+# ---- Retrieval ----
+retrieve: retrieve/__init__.py\n(read-only retrieve()) {
+  class: mcp
+  icon: https://icons.terrastruct.com/dev%2Fpython.svg
+}
+
+# ---- MCP tool surface ----
+mcp: mcp/server.py (read-only tool surface) {
+  class: mcp
+  icon: https://icons.terrastruct.com/tech%2F022-server.svg
+}
+
+# ---- Chat ----
+chat: chat/ (plan -> execute -> answer) {
+  style.stroke: "#3949AB"
+
+  planner: planner.py {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  retrieval: retrieval.py\n(McpChatExecutor) {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  answer: answer.py\n(grounded answer + checker) {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+}
+
+# ---- Report generator ----
+report: crews/report/ (evidence -> draft -> check -> render) {
+  style.stroke: "#3949AB"
+
+  evidence: evidence.py\n(frozen EvidencePack) {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  workflow: workflow.py + analysts\n(LLM sections) {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+  checker: checker.py / renderer.py\n(validate -> pdf/html/json) {
+    class: reader
+    icon: https://icons.terrastruct.com/dev%2Fpython.svg
+  }
+}
+
+# ---- UI ----
+ui: ui/app.py\n(FastAPI console: chat + report viewer) {
+  class: reader
+  icon: https://icons.terrastruct.com/tech%2F022-server.svg
+}
+
+# ====== WRITE PATH (solid, one direction) ======
+kernel.config -> acquire: "what to research" {
+  style.stroke: "#5D4037"
+  style.stroke-width: 2
+}
+kernel.ontology -> acquire: "axis / dimension scope" {
+  style.stroke: "#5D4037"
+  style.stroke-width: 2
+}
+
+acquire.web_lane -> internet.anthropic: "web research" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+acquire.tavily_lane -> internet.tavily: "search" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+acquire.context7_lane -> internet.context7: "library docs" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+
+acquire -> synthesize.deep_map: "cited candidates" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+synthesize.deep_map -> synthesize.pipeline: "feed candidate" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+synthesize.pipeline -> synthesize.compiler: "compile raw text" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+synthesize.pipeline -> embed: "embed documents (RETRIEVAL_DOCUMENT)" {
+  style.stroke: "#00838F"
+  style.stroke-width: 2
+}
+synthesize.pipeline -> db.repository: "write sources/chunks/entities/assertions" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 3
+}
+db.repository -> db.cloudsql: "upsert + supersede_older" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 3
+}
+synthesize.coverage_verdict -> synthesize.deep_map: "what still needs research" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+db.heal -> db.cloudsql: "mark stale + audit (non-destructive)" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+
+# ====== READ PATH (dashed) ======
+db.cloudsql -> db.repository: "active chunks / rollups" {
+  style.stroke: "#F57C00"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+db.repository -> retrieve: "vector_search (active)" {
+  style.stroke: "#F57C00"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+retrieve -> embed: "embed query (RETRIEVAL_QUERY)" {
+  style.stroke: "#00838F"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+retrieve -> mcp: "cited chunks + missing" {
+  style.stroke: "#AD1457"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+
+mcp -> chat.retrieval: "read tools (in-process)" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+mcp -> report.evidence: "read tools (in-process)" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+
+chat.planner -> chat.retrieval: "tool plan" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+chat.retrieval -> chat.answer: "evidence" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+report.evidence -> report.workflow: "frozen pack" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+report.workflow -> report.checker: "draft" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+
+ui -> chat.planner: "POST /api/chat" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+ui -> report.checker: "serve report artifacts" {
+  style.stroke: "#3949AB"
+  style.stroke-dash: 5
+}
+
+# ====== Skills feed model-driven layers ======
+skills -> acquire.web_lane: "prompts" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+skills -> synthesize.compiler: "prompts" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+skills -> chat.answer: "prompts" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+skills -> report.workflow: "prompts" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}

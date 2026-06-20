@@ -1,0 +1,133 @@
+# CI Engine - Infrastructure (Simplified)
+# GCP project jfrog-intel-rag / europe-west1
+
+direction: down
+
+classes: {
+  python: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  server: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  postgresql: {
+    style.stroke: "#E65100"
+    style.stroke-width: 2
+    shape: cylinder
+  }
+  cloud: {
+    style.stroke: "#C62828"
+    style.stroke-width: 2
+    shape: cloud
+  }
+  users: {
+    style.stroke: "#424242"
+    style.stroke-width: 2
+  }
+  vm: {
+    style.stroke: "#3949AB"
+    style.stroke-width: 2
+  }
+  secret: {
+    style.stroke: "#7B1FA2"
+    style.stroke-width: 2
+    shape: hexagon
+  }
+}
+
+analysts: Analysts (Browser + Google SSO) {
+  class: users
+  icon: https://icons.terrastruct.com/essentials%2F359-users.svg
+}
+
+console: Console\n(ci-ui Cloud Run / FastAPI) {
+  class: server
+  icon: https://icons.terrastruct.com/tech%2F022-server.svg
+}
+
+mcp: MCP Server\n(ci-mcp Cloud Run / read-only /mcp) {
+  class: server
+  icon: https://icons.terrastruct.com/tech%2F022-server.svg
+}
+
+db: Knowledge Base\n(Cloud SQL Postgres + pgvector) {
+  class: postgresql
+  icon: https://icons.terrastruct.com/dev%2Fpostgresql.svg
+}
+
+embeddings: Embeddings\n(Vertex AI gemini-embedding-001) {
+  class: cloud
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+secrets: Secrets\n(GCP Secret Manager) {
+  class: secret
+}
+
+acquisition: External Acquisition APIs\n(Anthropic / Tavily / Context7) {
+  class: cloud
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+ingestion: Ingestion Jobs\n(deep_map CLIs / Cloud Run Jobs) {
+  class: python
+  icon: https://icons.terrastruct.com/dev%2Fpython.svg
+}
+
+openclaw: Telegram Bot VM\n(openclaw-gateway Compute Engine) {
+  class: vm
+  icon: https://icons.terrastruct.com/dev%2Fdocker.svg
+}
+
+analysts -> console: "HTTPS (IAP/SSO)" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+openclaw -> mcp: "MCP /mcp (bearer token)" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+}
+
+console -> db: "SQL (IAM auth)" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+mcp -> db: "SQL (IAM auth)" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+
+console -> embeddings: "embed query" {
+  style.stroke: "#F57C00"
+  style.stroke-dash: 5
+}
+mcp -> embeddings: "embed query" {
+  style.stroke: "#F57C00"
+  style.stroke-dash: 5
+}
+
+console -> secrets: "read secret" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+mcp -> secrets: "read secret" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+
+ingestion -> acquisition: "web research (only internet)" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+ingestion -> db: "write cited evidence" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+ingestion -> embeddings: "embed documents" {
+  style.stroke: "#F57C00"
+  style.stroke-width: 2
+}

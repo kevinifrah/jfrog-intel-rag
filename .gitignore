@@ -11,3 +11,6 @@ deep_map.log
 .DS_Store
 *-key.json
 *service-account*.json
+
+# Diagram plugin ephemeral state
+.diagram/

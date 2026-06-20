@@ -1,0 +1,121 @@
+# CI Engine - Architecture (Simplified)
+# Strict-grounding RAG, one-directional write path
+
+direction: down
+
+classes: {
+  config: {
+    style.stroke: "#5D4037"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  acquire: {
+    style.stroke: "#C62828"
+    style.stroke-width: 2
+    shape: cloud
+  }
+  synth: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  embed: {
+    style.stroke: "#00838F"
+    style.stroke-width: 2
+    shape: hexagon
+  }
+  kb: {
+    style.stroke: "#E65100"
+    style.stroke-width: 2
+    shape: cylinder
+  }
+  mcp: {
+    style.stroke: "#AD1457"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  reader: {
+    style.stroke: "#3949AB"
+    style.stroke-width: 2
+    style.border-radius: 12
+  }
+}
+
+config: Configuration & Ontology\n(config.yaml) {
+  class: config
+}
+
+acquisition: Acquisition\n(Anthropic web research / Tavily / Context7) {
+  class: acquire
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+synthesis: Synthesis / Ingestion Pipeline\n(Claude compiler) {
+  class: synth
+  icon: https://icons.terrastruct.com/dev%2Fpython.svg
+}
+
+embeddings: Embeddings\n(Vertex AI gemini-embedding-001) {
+  class: embed
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+kb: Knowledge Base\n(Cloud SQL Postgres + pgvector) {
+  class: kb
+  icon: https://icons.terrastruct.com/dev%2Fpostgresql.svg
+}
+
+retrieval: Retrieval + MCP Tool Surface\n(read-only) {
+  class: mcp
+  icon: https://icons.terrastruct.com/tech%2F022-server.svg
+}
+
+chat: Chat Console\n(Claude) {
+  class: reader
+  icon: https://icons.terrastruct.com/dev%2Fpython.svg
+}
+
+report: Report Generator\n(CrewAI) {
+  class: reader
+  icon: https://icons.terrastruct.com/dev%2Fpython.svg
+}
+
+# Write path (one direction, solid)
+config -> acquisition: "what to research" {
+  style.stroke: "#5D4037"
+  style.stroke-width: 2
+}
+acquisition -> synthesis: "cited candidates (only internet data)" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+synthesis -> kb: "write chunks + entities + coverage" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 3
+}
+embeddings -> synthesis: "document embeddings" {
+  style.stroke: "#00838F"
+  style.stroke-width: 2
+}
+
+# Read path (dashed)
+kb -> retrieval: "read-only vector + keyword search" {
+  style.stroke: "#F57C00"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+embeddings -> retrieval: "query embeddings" {
+  style.stroke: "#00838F"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+retrieval -> chat: "evidence for answers" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}
+retrieval -> report: "frozen evidence pack" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+  style.stroke-dash: 5
+}

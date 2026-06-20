@@ -1,0 +1,253 @@
+# CI Engine - Infrastructure (Detailed)
+# GCP project jfrog-intel-rag / region europe-west1
+
+direction: down
+
+classes: {
+  python: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  server: {
+    style.stroke: "#1565C0"
+    style.stroke-width: 2
+    style.border-radius: 8
+  }
+  postgresql: {
+    style.stroke: "#E65100"
+    style.stroke-width: 2
+    shape: cylinder
+  }
+  cloud: {
+    style.stroke: "#C62828"
+    style.stroke-width: 2
+    shape: cloud
+  }
+  users: {
+    style.stroke: "#424242"
+    style.stroke-width: 2
+  }
+  vm: {
+    style.stroke: "#3949AB"
+    style.stroke-width: 2
+  }
+  secret: {
+    style.stroke: "#7B1FA2"
+    style.stroke-width: 2
+    shape: hexagon
+  }
+  registry: {
+    style.stroke: "#2E7D32"
+    style.stroke-width: 2
+    shape: stored_data
+  }
+  identity: {
+    style.stroke: "#6A1B9A"
+    style.stroke-width: 2
+  }
+}
+
+# ---- External actors ----
+analysts: Analysts\n(Browser + Google SSO) {
+  class: users
+  icon: https://icons.terrastruct.com/essentials%2F359-users.svg
+}
+
+mcpclients: MCP Clients\n(token + Google identity) {
+  class: users
+  icon: https://icons.terrastruct.com/essentials%2F359-users.svg
+}
+
+telegram: Telegram Bot API\n(BotFather, long-poll) {
+  class: cloud
+  icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+}
+
+# ---- External / managed (outside engine images) ----
+openclaw: openclaw-gateway VM\n(Compute Engine europe-west1-b / OpenClaw) {
+  class: vm
+  icon: https://icons.terrastruct.com/dev%2Fdocker.svg
+}
+
+# ---- External APIs (internet, acquisition only) ----
+external: External APIs (internet) {
+  style.stroke: "#C62828"
+  style.stroke-dash: 3
+
+  anthropic: Anthropic API\n(Claude + web_search) {
+    class: cloud
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+  tavily: Tavily Search {
+    class: cloud
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+  context7: Context7\n(mcp.context7.com) {
+    class: cloud
+    icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+  }
+}
+
+# ---- GCP project ----
+gcp: GCP project jfrog-intel-rag (europe-west1) {
+  style.stroke: "#1A73E8"
+  style.stroke-width: 2
+
+  cloudrun: Cloud Run services {
+    style.stroke: "#1565C0"
+    style.stroke-dash: 3
+
+    ciui: ci-ui\n(FastAPI/uvicorn console + chat, IAP/SSO) {
+      class: server
+      icon: https://icons.terrastruct.com/tech%2F022-server.svg
+    }
+    cimcp: ci-mcp\n(read-only MCP server /mcp, shared token) {
+      class: server
+      icon: https://icons.terrastruct.com/tech%2F022-server.svg
+    }
+  }
+
+  ingestion: Ingestion compute (CLIs / Cloud Run Jobs) {
+    style.stroke: "#3949AB"
+    style.stroke-dash: 3
+
+    deepmap: deep_map / scope-closure / healing\n(Python, only internet-touching) {
+      class: python
+      icon: https://icons.terrastruct.com/dev%2Fpython.svg
+    }
+  }
+
+  backing: Shared backing services {
+    style.stroke: "#5D4037"
+    style.stroke-dash: 3
+
+    db: Cloud SQL ci-db / ci\n(Postgres + pgvector, IAM auth) {
+      class: postgresql
+      icon: https://icons.terrastruct.com/dev%2Fpostgresql.svg
+    }
+    secrets: Secret Manager\n(anthropic / tavily / context7 / telegram) {
+      class: secret
+    }
+    vertex: Vertex AI\n(gemini-embedding-001, 1536 dims) {
+      class: cloud
+      icon: https://icons.terrastruct.com/essentials%2F092-network.svg
+    }
+  }
+
+  sa: ci-engine-sa\n(runtime SA + IAM DB user) {
+    class: identity
+  }
+
+  registry: Artifact Registry\n(ci-engine repo: ci-ui / ci-mcp images) {
+    class: registry
+  }
+}
+
+# ---- Ingress ----
+analysts -> gcp.cloudrun.ciui: "HTTPS (Cloud Run IAP/SSO)" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+mcpclients -> gcp.cloudrun.cimcp: "MCP /mcp (Bearer + IAM)" {
+  style.stroke: "#1976D2"
+  style.stroke-width: 2
+}
+openclaw -> gcp.cloudrun.cimcp: "MCP /mcp (Bearer token)" {
+  style.stroke: "#3949AB"
+  style.stroke-width: 2
+}
+
+# ---- Services -> Cloud SQL ----
+gcp.cloudrun.ciui -> gcp.backing.db: "SQL (Cloud SQL Connector / IAM)" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+gcp.cloudrun.cimcp -> gcp.backing.db: "SQL (Cloud SQL Connector / IAM)" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+
+# ---- Services -> Vertex AI (query embed, read-time) ----
+gcp.cloudrun.ciui -> gcp.backing.vertex: "embed query" {
+  style.stroke: "#F57C00"
+  style.stroke-dash: 5
+}
+gcp.cloudrun.cimcp -> gcp.backing.vertex: "embed query" {
+  style.stroke: "#F57C00"
+  style.stroke-dash: 5
+}
+
+# ---- Services -> Secret Manager ----
+gcp.cloudrun.ciui -> gcp.backing.secrets: "read secret (ADC)" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+gcp.cloudrun.cimcp -> gcp.backing.secrets: "read secret (ADC)" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+
+# ---- Runtime identity ----
+gcp.cloudrun.ciui -> gcp.sa: "runs as" {
+  style.stroke: "#6A1B9A"
+  style.stroke-dash: 3
+}
+gcp.cloudrun.cimcp -> gcp.sa: "runs as" {
+  style.stroke: "#6A1B9A"
+  style.stroke-dash: 3
+}
+gcp.sa -> gcp.sa: "self-impersonate (IAM DB token)" {
+  style.stroke: "#6A1B9A"
+  style.stroke-dash: 3
+}
+
+# ---- Ingestion ----
+gcp.ingestion.deepmap -> external.anthropic: "web research / synthesis" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+gcp.ingestion.deepmap -> external.tavily: "search" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+gcp.ingestion.deepmap -> external.context7: "library docs" {
+  style.stroke: "#C62828"
+  style.stroke-width: 2
+}
+gcp.ingestion.deepmap -> gcp.backing.db: "write sources/chunks/assertions" {
+  style.stroke: "#388E3C"
+  style.stroke-width: 2
+}
+gcp.ingestion.deepmap -> gcp.backing.vertex: "embed documents" {
+  style.stroke: "#F57C00"
+  style.stroke-width: 2
+}
+gcp.ingestion.deepmap -> gcp.backing.secrets: "read secret (ADC)" {
+  style.stroke: "#7B1FA2"
+  style.stroke-dash: 3
+}
+gcp.ingestion.deepmap -> gcp.sa: "runs as" {
+  style.stroke: "#6A1B9A"
+  style.stroke-dash: 3
+}
+
+# ---- Image supply ----
+gcp.registry -> gcp.cloudrun.ciui: "image" {
+  style.stroke: "#2E7D32"
+  style.stroke-dash: 3
+}
+gcp.registry -> gcp.cloudrun.cimcp: "image" {
+  style.stroke: "#2E7D32"
+  style.stroke-dash: 3
+}
+
+# ---- OpenClaw VM external wiring ----
+telegram -> openclaw: "messages (outbound long-poll)" {
+  style.stroke: "#424242"
+  style.stroke-dash: 5
+}
+openclaw -> external.anthropic: "answers via Claude (OpenClaw auth)" {
+  style.stroke: "#C62828"
+  style.stroke-dash: 5
+}
