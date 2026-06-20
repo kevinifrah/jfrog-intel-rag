@@ -9,6 +9,7 @@ from typing import Any, Iterable
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from ci_engine.config import get as config_get
 from ci_engine.crews.report.schemas import (
     EvidenceItem,
     EvidencePack,
@@ -38,6 +39,7 @@ _SECTION_EYEBROW = {
     "executive_summary": "Executive summary",
     "company_snapshot": "Company snapshot",
     "market_context": "Part 1 · Market & strategic context",
+    "market_overview": "Market-wide view · macro forces, structure & positioning",
     "product_feature_analysis": "Part 2 · Product & feature analysis",
     "technical_teardown": "Part 2 · Technical teardown",
     "supply_chain_security": "Part 2 · Supply-chain security",
@@ -137,12 +139,19 @@ def render_html(
     by_id = {section.id: section for section in sections}
     citer = _CiteRegistry({item.id: item for item in evidence_pack.items})
 
+    # The standalone market report forces its frameworks on regardless of the
+    # per-competitor toggles, and uses a market-wide header instead of "JFrog vs X".
+    is_market = draft.metadata.get("report_kind") == "market"
+
     # Build presentation structures in reading order so reference numbers flow.
     executive = _executive_brief(by_id, draft.competitor, citer)
-    presentation_sections = _ordered_presentation_sections(sections, draft.competitor, citer)
+    presentation_sections = _ordered_presentation_sections(
+        sections, draft.competitor, citer, frameworks_forced=is_market
+    )
     scorecards = _presentation_scorecards(scores, citer)
     confidence_tiering = _confidence_tiering(by_id)
     references = citer.references()
+    header = _document_header(draft)
 
     return template.render(
         draft=draft,
@@ -151,13 +160,49 @@ def render_html(
         jfrog=draft.jfrog,
         generated_date=draft.generated_at.date(),
         evidence_count=len(evidence_pack.items),
+        doc_title=header["title"],
+        doc_eyebrow=header["eyebrow"],
+        doc_lead=header["lead"],
+        doc_meta_label=header["meta_label"],
+        show_executive=not is_market,
         executive=executive,
         sections=presentation_sections,
         scorecards=scorecards,
         confidence_tiering=confidence_tiering,
         references=references,
-        toc=_table_of_contents(presentation_sections, scorecards, confidence_tiering, references),
+        toc=_table_of_contents(
+            presentation_sections,
+            scorecards,
+            confidence_tiering,
+            references,
+            include_executive=not is_market,
+        ),
     )
+
+
+def _document_header(draft: ReportDraft) -> dict[str, str]:
+    """Header copy: the standalone market report reads market-wide, not 'JFrog vs X'."""
+    if draft.metadata.get("report_kind") == "market":
+        title = str(draft.metadata.get("report_title") or "Market & Strategic Context")
+        return {
+            "title": title,
+            "eyebrow": "JFrog Competitive Intelligence · Market report",
+            "lead": (
+                "The macro forces, industry structure, and strategic-group positioning "
+                "of the software supply-chain security market, set against JFrog and the "
+                "tracked competitive field."
+            ),
+            "meta_label": "Scope",
+        }
+    return {
+        "title": f"JFrog vs {draft.competitor}",
+        "eyebrow": "JFrog Competitive Intelligence · Dossier",
+        "lead": (
+            f"A strategic and technical teardown of {draft.competitor} as a JFrog "
+            "competitor across the software supply chain, set in its market context."
+        ),
+        "meta_label": "Competitor",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -195,6 +240,8 @@ def _ordered_presentation_sections(
     sections: tuple[ReportSection, ...],
     competitor: str,
     citer: _CiteRegistry,
+    *,
+    frameworks_forced: bool = False,
 ) -> list[dict[str, Any]]:
     by_id = {section.id: section for section in sections}
     # executive_summary is rendered via the executive brief (thesis + tradeoff + SWOT),
@@ -208,7 +255,9 @@ def _ordered_presentation_sections(
     presentation: list[dict[str, Any]] = []
     for section_id in ordered_ids:
         section = by_id[section_id]
-        presentation.append(_present_section(section, competitor, citer))
+        presentation.append(
+            _present_section(section, competitor, citer, frameworks_forced=frameworks_forced)
+        )
     return presentation
 
 
@@ -216,6 +265,8 @@ def _present_section(
     section: ReportSection,
     competitor: str,
     citer: _CiteRegistry,
+    *,
+    frameworks_forced: bool = False,
 ) -> dict[str, Any]:
     readouts = _section_readouts(section, citer)
     lead = None
@@ -235,9 +286,9 @@ def _present_section(
         "lead": lead,
         "readouts": body_readouts,
         "missing": missing,
-        "pestel": _pestel(section),
-        "five_forces": _five_forces(section),
-        "positioning": _positioning(section),
+        "pestel": _pestel(section, frameworks_forced),
+        "five_forces": _five_forces(section, frameworks_forced),
+        "positioning": _positioning(section, frameworks_forced),
         "capability_matrix": _capability_matrix(section),
         "product_catalog": _product_catalog_rows(section),
         "capability_gaps": _capability_gap_rows(section, competitor),
@@ -247,6 +298,9 @@ def _present_section(
 
 
 def _section_readouts(section: ReportSection, citer: _CiteRegistry) -> list[dict[str, Any]]:
+    # The market report lists every dynamic and risk, not just the first of each.
+    if section.id == "market_overview":
+        return _market_overview_readouts(section, citer)
     rows: list[dict[str, Any]] = []
     for label, prefixes in _READOUT_SPECS.get(section.id, ()):
         claim = _first_claim(section, prefixes)
@@ -256,10 +310,35 @@ def _section_readouts(section: ReportSection, citer: _CiteRegistry) -> list[dict
     return rows
 
 
+def _market_overview_readouts(
+    section: ReportSection,
+    citer: _CiteRegistry,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    thesis = _first_claim(section, ("market-thesis",))
+    if thesis is not None:
+        rows.append({"label": "Market thesis", **_cited(thesis, citer)})
+    for label, prefix in (("Market dynamic", "market-dynamic"), ("Market risk", "market-risk")):
+        for claim in section.claims:
+            if claim.claim_type == "missing" or not claim.id.startswith(prefix):
+                continue
+            rows.append({"label": label, **_cited(claim, citer)})
+    return rows
+
+
 # --------------------------------------------------------------------------- #
 # Framework extractors (read the optional metadata stashed by the analysts)
 # --------------------------------------------------------------------------- #
-def _pestel(section: ReportSection) -> list[dict[str, Any]]:
+def _framework_enabled(name: str, forced: bool = False) -> bool:
+    # The standalone market report forces its frameworks on; otherwise honor config.
+    if forced:
+        return True
+    return bool(config_get(f"report.frameworks.{name}", True))
+
+
+def _pestel(section: ReportSection, forced: bool = False) -> list[dict[str, Any]]:
+    if not _framework_enabled("pestel", forced):
+        return []
     factors = section.metadata.get("pestel")
     if not isinstance(factors, list):
         return []
@@ -278,7 +357,9 @@ def _pestel(section: ReportSection) -> list[dict[str, Any]]:
     return rows
 
 
-def _five_forces(section: ReportSection) -> list[dict[str, Any]]:
+def _five_forces(section: ReportSection, forced: bool = False) -> list[dict[str, Any]]:
+    if not _framework_enabled("five_forces", forced):
+        return []
     forces = section.metadata.get("five_forces")
     if not isinstance(forces, list):
         return []
@@ -296,7 +377,9 @@ def _five_forces(section: ReportSection) -> list[dict[str, Any]]:
     return rows
 
 
-def _positioning(section: ReportSection) -> dict[str, Any] | None:
+def _positioning(section: ReportSection, forced: bool = False) -> dict[str, Any] | None:
+    if not _framework_enabled("positioning_map", forced):
+        return None
     pmap = section.metadata.get("positioning_map")
     if not isinstance(pmap, dict):
         return None
@@ -326,6 +409,8 @@ def _positioning(section: ReportSection) -> dict[str, Any] | None:
 
 
 def _swot(section: ReportSection, citer: _CiteRegistry) -> dict[str, Any] | None:
+    if not _framework_enabled("swot"):
+        return None
     swot = section.metadata.get("swot")
     if not isinstance(swot, dict):
         return None
@@ -515,8 +600,14 @@ def _table_of_contents(
     scorecards: list[dict[str, Any]],
     confidence_tiering: dict[str, Any] | None,
     references: list[dict[str, Any]],
+    *,
+    include_executive: bool = True,
 ) -> list[dict[str, str]]:
-    entries = [{"anchor": "executive-summary", "label": "Executive Summary"}]
+    entries = (
+        [{"anchor": "executive-summary", "label": "Executive Summary"}]
+        if include_executive
+        else []
+    )
     for section in sections:
         if section["id"] == "executive_summary":
             continue
@@ -581,6 +672,11 @@ _READOUT_SPECS: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
         ("Buyer segment", ("market-buyer-segment",)),
         ("GTM motion", ("market-gtm-motion",)),
         ("Risk", ("market-risk",)),
+    ),
+    "market_overview": (
+        ("Market thesis", ("market-thesis",)),
+        ("Market dynamic", ("market-dynamic",)),
+        ("Market risk", ("market-risk",)),
     ),
     "product_feature_analysis": (
         ("Product thesis", ("product-feature-thesis",)),
@@ -711,8 +807,16 @@ def _blocked_url_fetcher(url: str) -> dict[str, object]:
     return {"string": "", "mime_type": "text/css"}
 
 
+def _excluded_section_ids() -> set[str]:
+    raw = config_get("report.customer_excluded_sections", []) or []
+    return {str(section_id).strip() for section_id in raw if str(section_id).strip()}
+
+
 def _presentation_sections(draft: ReportDraft) -> tuple[ReportSection, ...]:
     mode = draft.metadata.get("draft_mode")
+    # The standalone market report opts out of competitor-mode section filtering.
+    if draft.metadata.get("report_kind") == "market" or mode == "market_overview":
+        return draft.sections
     if mode == "crew_strategy":
         visible_ids = {"executive_summary"}
     elif mode == "crew_strategy_market":
@@ -751,6 +855,9 @@ def _presentation_sections(draft: ReportDraft) -> tuple[ReportSection, ...]:
         }
     else:
         return draft.sections
+    # Drop customer-excluded sections (e.g. "Part 1 · Market & strategic context")
+    # from the customer-facing dossier; they are published in the market report instead.
+    visible_ids -= _excluded_section_ids()
     return tuple(section for section in draft.sections if section.id in visible_ids)
 
 

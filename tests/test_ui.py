@@ -42,10 +42,9 @@ def test_report_console_serves_registry_html_pdf_and_chat(tmp_path):
     assert "Web check" not in page.text
     assert "Haiku" not in page.text
     assert "jfrog-logo.svg" in page.text
-    assert 'id="competitor-index"' in page.text
-    assert "Competitors" in page.text
-    # The competitor picker is a typeset index, not a dropdown.
-    assert 'id="report-select"' not in page.text
+    # The competitor picker is a simple dropdown, no "in review" tags.
+    assert 'id="report-select"' in page.text
+    assert "in review" not in page.text.lower()
     registry = client.get("/api/reports").json()
     assert registry["reports"][0]["slug"] == "sonatype"
     assert registry["reports"][0]["executive_status_label"] == "Final report ready"

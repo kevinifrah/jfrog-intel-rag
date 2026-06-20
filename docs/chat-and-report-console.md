@@ -32,11 +32,13 @@ Host and port live in `src/ci_engine/config.yaml`:
 
 ## UI Layout
 
-The console is an editorial two-pane reading environment.
+The console is a full-width editorial reading environment.
 
-- **Left index**: typeset competitor list with hairline dividers; active competitor is marked with a quiet rule. No dropdown, no colored status pills.
-- **Reading surface**: the selected dossier fills the main area as an iframe. A thin reader header above it shows the competitor name, quiet meta (generated date, validation status), and a Download PDF button.
+- **Competitor dropdown**: a `<select>` in the reader header chooses which dossier to show. No colored status pills, no "in review" tags — just the competitor name.
+- **Reading surface**: the selected dossier fills the main area as an iframe. The reader header also shows quiet meta (generated date, validation status) and a Download PDF button.
 - **Ask FAB**: a fixed "Ask" button opens an off-canvas chat drawer from the right. A scrim covers the dossier while the drawer is open. `Esc` or clicking the scrim closes it.
+
+The standalone **Market & Strategic Context** report (produced on batch runs) appears in the same dropdown when present, titled from its report metadata rather than `JFrog vs <competitor>`.
 
 PDF behavior:
 

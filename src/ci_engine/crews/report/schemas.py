@@ -401,6 +401,33 @@ class MarketAnalysis(ReportBaseModel):
         return cleaned
 
 
+class MarketOverviewAnalysis(ReportBaseModel):
+    """Market-wide analysis for the standalone "Market & Strategic Context" report.
+
+    Unlike MarketAnalysis (a JFrog-vs-competitor pairing), this describes the whole
+    market: a thesis, the structural dynamics and risks, and the general PESTEL,
+    Porter's Five Forces and an all-competitor positioning map. It is produced once
+    per batch run by a dedicated analyst pass, independent of any single competitor.
+    """
+
+    market_thesis: MarketClaim
+    market_dynamics: tuple[MarketClaim, ...] = Field(min_length=1)
+    market_risks: tuple[MarketClaim, ...] = Field(min_length=1)
+    pestel: tuple[PestelFactor, ...] = ()
+    five_forces: tuple[FiveForce, ...] = ()
+    positioning_map: PositioningMap | None = None
+    confidence_notes: tuple[str, ...] = Field(min_length=1)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("confidence_notes")
+    @classmethod
+    def _non_empty_confidence_notes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        cleaned = tuple(note.strip() for note in value if note.strip())
+        if not cleaned:
+            raise ValueError("at least one confidence note is required")
+        return cleaned
+
+
 class TechnicalClaim(ReportBaseModel):
     text: str
     evidence_ids: tuple[str, ...] = Field(min_length=1)

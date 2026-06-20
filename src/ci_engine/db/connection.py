@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import atexit
+import os
 from threading import Lock
 from typing import Any
 
@@ -140,6 +141,8 @@ def _connector_credentials() -> Credentials | None:
     target = _impersonated_service_account()
     if not target:
         return None
+    if _running_on_cloud_run():
+        return None
 
     source_credentials, _project_id = google.auth.default(scopes=[_CLOUD_PLATFORM_SCOPE])
     if _credential_principal(source_credentials) == target:
@@ -159,6 +162,10 @@ def _credential_principal(credentials: Credentials) -> str | None:
         if value:
             return str(value)
     return None
+
+
+def _running_on_cloud_run() -> bool:
+    return bool(os.environ.get("K_SERVICE"))
 
 
 def _instance_connection_name() -> str:

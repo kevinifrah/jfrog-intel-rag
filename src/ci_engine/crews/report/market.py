@@ -34,12 +34,21 @@ MARKET_SECTIONS = (
 # emitted into the optional MarketAnalysis framework fields).
 # report-market-cross-report MUST be first — it defines canonical axes and baselines
 # that the per-framework skills below must follow to ensure cross-report comparability.
-MARKET_FRAMEWORK_SKILLS = (
-    "report-market-cross-report",
-    "report-framework-pestel",
-    "report-framework-five-forces",
-    "report-framework-positioning-map",
-)
+def framework_enabled(name: str) -> bool:
+    """Whether an optional Market Analyst framework is turned on in config."""
+    return bool(config_get(f"report.frameworks.{name}", True))
+
+
+def market_framework_skills() -> tuple[str, ...]:
+    """Framework skills to compose for the Market Analyst, honoring config toggles."""
+    skills = ["report-market-cross-report"]
+    if framework_enabled("pestel"):
+        skills.append("report-framework-pestel")
+    if framework_enabled("five_forces"):
+        skills.append("report-framework-five-forces")
+    if framework_enabled("positioning_map"):
+        skills.append("report-framework-positioning-map")
+    return tuple(skills)
 
 SOURCE_LIST_PROSE_PATTERNS = (
     "current section uses",
@@ -140,17 +149,46 @@ def build_market_prompt(evidence_pack: EvidencePack) -> str:
     payload = build_market_prompt_input(evidence_pack)
     schema = MarketAnalysis.model_json_schema()
     skill = load_agent_skill("market_analyst")
-    frameworks = "\n\n".join(load_skill(name) for name in MARKET_FRAMEWORK_SKILLS)
+    frameworks = "\n\n".join(load_skill(name) for name in market_framework_skills())
+
+    enabled_fields = ["five_forces"] if framework_enabled("five_forces") else []
+    if framework_enabled("pestel"):
+        enabled_fields.insert(0, "pestel")
+    if framework_enabled("positioning_map"):
+        enabled_fields.append("positioning_map")
+
+    framework_lines: list[str] = []
+    if enabled_fields:
+        framework_lines.append(
+            f"Also populate the {', '.join(enabled_fields)} field(s) per the framework skills above. "
+        )
+    disabled_fields = [
+        field
+        for field in ("pestel", "five_forces", "positioning_map")
+        if field not in enabled_fields
+    ]
+    if disabled_fields:
+        framework_lines.append(
+            f"Leave the {', '.join(disabled_fields)} field(s) empty — they are disabled for this report. "
+        )
+    if framework_enabled("positioning_map"):
+        framework_lines.append(
+            "For the positioning_map, you MUST use the canonical axes defined in the cross-report skill: "
+            "x_axis_label='Supply-chain coverage breadth', y_axis_label='Security specialization depth'. "
+            "Do not invent different axes — these are fixed across all dossiers so reports are comparable. "
+        )
+    if framework_enabled("five_forces"):
+        framework_lines.append(
+            "For five_forces, start from the baseline intensities in the cross-report skill and adjust only "
+            "when your evidence strongly supports a different rating. "
+        )
+    framework_instructions = "".join(framework_lines)
+
     return (
         f"{skill}\n\n"
         f"{frameworks}\n\n"
         "Write the company_snapshot and market_context sections only.\n"
-        "Also populate the pestel, five_forces, and positioning_map fields per the framework skills above. "
-        "For the positioning_map, you MUST use the canonical axes defined in the cross-report skill: "
-        "x_axis_label='Supply-chain coverage breadth', y_axis_label='Security specialization depth'. "
-        "Do not invent different axes — these are fixed across all dossiers so reports are comparable. "
-        "For five_forces, start from the baseline intensities in the cross-report skill and adjust only "
-        "when your evidence strongly supports a different rating. "
+        f"{framework_instructions}"
         "If the EvidencePack cannot support a framework, return it empty rather than inventing data.\n"
         "Return one strict JSON object and no markdown.\n"
         "Every claim must cite one or more IDs from allowed_evidence_ids.\n"
@@ -266,7 +304,7 @@ def market_analysis_to_sections(
 def _market_framework_metadata(analysis: MarketAnalysis) -> dict[str, Any]:
     """Stash optional analyst frameworks into section metadata (renderer reads them)."""
     meta: dict[str, Any] = {}
-    if analysis.pestel:
+    if analysis.pestel and framework_enabled("pestel"):
         meta["pestel"] = [
             {
                 "axis": factor.axis,
@@ -277,7 +315,7 @@ def _market_framework_metadata(analysis: MarketAnalysis) -> dict[str, Any]:
             }
             for factor in analysis.pestel
         ]
-    if analysis.five_forces:
+    if analysis.five_forces and framework_enabled("five_forces"):
         meta["five_forces"] = [
             {
                 "force": force.force,
@@ -287,7 +325,7 @@ def _market_framework_metadata(analysis: MarketAnalysis) -> dict[str, Any]:
             }
             for force in analysis.five_forces
         ]
-    if analysis.positioning_map is not None:
+    if analysis.positioning_map is not None and framework_enabled("positioning_map"):
         pmap = analysis.positioning_map
         meta["positioning_map"] = {
             "x_axis_label": _presentation_text(pmap.x_axis_label),

@@ -35,6 +35,7 @@ The core business use case is competitive intelligence for JFrog across software
 - [Architecture](docs/architecture.md) - data flow, DB schema, ontology, retrieval, and coverage status design.
 - [AI and Models](docs/ai-and-models.md) - what AI manages, which models are used, and what is deterministic.
 - [Operations](docs/operations.md) - setup, commands, safe rollout, and troubleshooting.
+- [Deployment](docs/deployment.md) - Docker images, Cloud Run deploy/redeploy, and rollback.
 - [Report Generator](docs/report-generator.md) - CrewAI competitive dossiers, EvidencePack flow, validation, and PDF/HTML/JSON outputs.
 - [Chat and Report Console](docs/chat-and-report-console.md) - local report viewer UI and grounded MCP-backed Q&A chat.
 
@@ -58,7 +59,7 @@ Important packages:
 - `mcp/` - MCP retrieval server and tools.
 - `crews/report/` - CrewAI-backed competitive report generator, schemas, analysts, checker, and renderer.
 - `chat/` - skill-guided chat planning, MCP execution, Tavily web checks, answer writing, and grounding validation.
-- `ui/` - FastAPI report console with editorial dossier reader, PDF download, and chat drawer.
+- `ui/` - FastAPI report console with a competitor dropdown, full-width dossier reader, PDF download, and chat drawer.
 - `retrieve/` - read-only retrieval API.
 - `skills/` - model prompts and instruction assets.
 - `synthesize/` - deep map, ingestion pipeline, synthesis, scope closure, and verdict logic.
@@ -257,7 +258,7 @@ Open:
 http://127.0.0.1:8090
 ```
 
-The console is an editorial two-pane reader: a typeset competitor index on the left and the full dossier in an iframe on the right. Clicking a competitor loads its report; the reader header shows the dossier title, status, and a PDF download link. A fixed "Ask" button (bottom-right circle) opens the chat drawer.
+The console is a full-width editorial reader. A competitor **dropdown** in the reader header selects which dossier to show; the dossier itself fills the reading surface in an iframe. The header also shows the status (generated date, validation state) and a PDF download link. A fixed "Ask" button (bottom-right circle) opens the chat drawer.
 
 The chat is grounded in read-only MCP retrieval and selected report artifacts. It uses Sonnet for answer writing, automatically runs bounded Tavily validation when needed, strengthens comparison and weakness questions with balanced retrieval, and fails closed with `not enough evidence` when retrieval cannot support an answer. The clear button in the chat drawer header resets the conversation.
 
@@ -320,25 +321,30 @@ Outputs are written to `reports/<competitor-slug>/`:
 
 The report generator fails closed. JSON and HTML are written for review, but PDF rendering is blocked when validation fails.
 
-**Report sections and frameworks produced:**
+**Report sections produced (customer dossier):**
 
-Each dossier includes:
+Each `JFrog vs <competitor>` dossier includes:
 - **Executive Summary** — strategic thesis, JFrog strengths, competitor strengths, risks, and recommended actions (SWOT, confidence tiering).
 - **Company Snapshot** — business-level position for JFrog and the competitor.
-- **Market And Strategic Context** — market thesis, buyer segments, GTM, ecosystem signals, market risks (PESTEL, Five Forces, positioning map).
 - **Product And Feature Analysis** — product catalog, capability matrix, JFrog advantages, competitor advantages, JFrog limitations, parity gaps, buyer implications.
 - **Technical Teardown** — architectural thesis, platform capabilities, architecture implications, AI/artifact governance, supply chain security comparison.
 - **Buyer Fit Matrix** — buyer scenarios where JFrog wins vs loses, qualify-out signals.
 - **Field Battlecard** — battlecard thesis, objection handling, discovery questions, field actions.
 - **Scoring** — weighted buyer scorecards across three archetypes (security/OSS-led, balanced, platform/consolidation-led).
 
+"Part 1 · Market & strategic context" (PESTEL, Porter's Five Forces, and the positioning map) is **not** part of customer dossiers — those market-wide frameworks are published once per batch as a separate report (below). SWOT stays in the Executive Summary.
+
+**Standalone Market & Strategic Context report:**
+
+A batch run (`--all-companies`, `--deep-map-now`, or `--competitors`) also produces one standalone market report at `reports/market/report.{json,html,pdf}`. It runs a single market-wide analyst pass over evidence from all tracked competitors and carries the general PESTEL, Porter's Five Forces, and a positioning map plotting the whole tracked field (not a single competitor). It is toggled by `report.market_report.enabled` in `config.yaml`.
+
 **Framework consistency across reports:**
 
-The positioning map uses canonical fixed axes across all dossiers:
+The positioning map uses canonical fixed axes everywhere it appears:
 - X: *Supply-chain coverage breadth* (single ecosystem → universal repository + full SDLC)
 - Y: *Security specialization depth* (platform with security add-ons → purpose-built security toolchain)
 
-This means positioning maps from different reports are directly comparable. The Five Forces also uses a consistent baseline intensity for the software supply chain security market, adjusted only where evidence supports.
+This means the market positioning map is directly comparable across runs. The Five Forces also uses a consistent baseline intensity for the software supply chain security market, adjusted only where evidence supports.
 
 **Draft modes:**
 
@@ -575,7 +581,8 @@ Implementation:
 - MCP `build_report_evidence_pack` batches broad report section retrieval.
 - CrewAI/Sonnet analyst agents synthesize seven sections: Strategy, Market, Product/Feature, Technical, Buyer/Field, Scoring, and Editor/Auditor.
 - Each section uses a dedicated skill in `src/ci_engine/skills/report-*/SKILL.md` with explicit format instructions, evidence rules, and writing discipline.
-- **Analyst frameworks:** Strategy produces SWOT and confidence tiering; Market produces PESTEL, Five Forces, and a positioning map with canonical cross-report axes; Product produces a capability matrix with cited rows.
+- **Analyst frameworks:** Strategy produces SWOT and confidence tiering; Product produces a capability matrix with cited rows. PESTEL, Five Forces, and the positioning map are dropped from customer dossiers (Part 1 is excluded) and instead drive a standalone market report.
+- **Standalone market report:** a dedicated market-wide analyst pass (`crews/report/market_report.py` + `skills/report-market-overview/`) runs once per batch over evidence from all tracked competitors and writes `reports/market/` with the general PESTEL, Five Forces, and an all-competitor positioning map. Customer dossiers exclude `market_context` via `report.customer_excluded_sections`.
 - `Report Checker` validates citations, neutrality, evidence coverage, contradictions, and raw artifact leakage before rendering.
 - The renderer writes `report.json`, `report.html` (typeset single-column dossier with numbered references, SVG positioning map, SWOT grid, PESTEL grid, Five Forces rows, capability matrix, buyer scorecards), and `report.pdf`.
 
@@ -587,9 +594,9 @@ Problem: the report viewer was a generic SaaS dashboard that fought the editoria
 
 Implementation:
 
-- The console (`src/ci_engine/ui/`) is an editorial two-pane environment: typeset competitor index (left) + full dossier iframe reader (right).
+- The console (`src/ci_engine/ui/`) is a full-width editorial reader: a competitor dropdown in the reader header selects the dossier, which fills the surface in an iframe.
 - A fixed circle "Ask" button opens an off-canvas chat drawer with a clear button.
-- No dropdown, no shadow cards, no colored pills — warm paper canvas matching the dossier.
+- No shadow cards, no colored status pills — warm paper canvas matching the dossier.
 - Chat is grounded in read-only MCP retrieval; answer writing uses Sonnet for richer synthesis.
 
 Why: the chrome around the document should support reading the document, not distract from it.
@@ -625,6 +632,36 @@ Configured defaults:
 - Secrets: `anthropic-key`, `tavily-key`, `context7-key`, `telegram-token`
 
 Secret values must never be committed or documented.
+
+## Deployment
+
+CI Engine ships as two container images that run on **Cloud Run**, both running as `ci-engine-sa`:
+
+- **Report console (UI)** — `ops/Dockerfile.ui` (mirrored by the root `Dockerfile`); serves the editorial reader + chat via `uvicorn --factory ci_engine.ui.app:create_app`.
+- **MCP server** — `ops/Dockerfile.mcp`; serves read-only retrieval/report tools (`python -m ci_engine.mcp.server`).
+
+Both honor Cloud Run's `PORT`, read secrets from Secret Manager via the runtime SA's ADC, and reach Cloud SQL through the Cloud SQL Python Connector with IAM auth.
+
+Build and deploy (after one-time project/IAM setup — see the deployment guide):
+
+```bash
+REPO=europe-west1-docker.pkg.dev/jfrog-intel-rag/ci-engine
+
+# Build
+gcloud builds submit --tag "$REPO/ci-ui:latest" .
+
+# Deploy / redeploy a new revision
+gcloud run deploy ci-ui \
+  --image="$REPO/ci-ui:latest" \
+  --region=europe-west1 \
+  --service-account=ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com \
+  --add-cloudsql-instances=jfrog-intel-rag:europe-west1:ci-db \
+  --allow-unauthenticated
+```
+
+To **redeploy**, rebuild the affected image and run `gcloud run deploy` again — it rolls out a new revision and keeps previously set flags. Note that `config.yaml` and the `reports/` artifacts are baked into the image, so config changes and newly generated dossiers require a rebuild + redeploy of the UI image.
+
+Full instructions — APIs, Artifact Registry, IAM roles, the MCP service, local container runs, rollback, and the report-artifact caveat — are in [Deployment](docs/deployment.md).
 
 ## Testing
 

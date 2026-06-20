@@ -856,8 +856,23 @@ def test_report_run_batch_main_uses_configured_companies(monkeypatch, tmp_path, 
             ),
         )
 
+    market_calls = []
+
+    def fake_generate_market_report(*, out_dir=None, formats=(), progress=None):
+        market_calls.append({"out_dir": out_dir, "formats": formats})
+        return SimpleNamespace(
+            validation=SimpleNamespace(passed=True),
+            evidence_pack=SimpleNamespace(items=[object()], gaps=[]),
+            renders=(
+                RenderResult(format="json", status="written", path=f"{out_dir}/report.json"),
+            ),
+        )
+
     monkeypatch.setattr(report_run, "tracked_companies", lambda: ["JFrog", "Sonatype", "Snyk"])
     monkeypatch.setattr(report_run, "generate_report", fake_generate_report)
+    from ci_engine.crews.report import market_report as market_report_module
+
+    monkeypatch.setattr(market_report_module, "generate_market_report", fake_generate_market_report)
 
     report_run.main(
         [
@@ -874,12 +889,17 @@ def test_report_run_batch_main_uses_configured_companies(monkeypatch, tmp_path, 
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["passed"] is True
-    assert payload["count"] == 2
+    # Two competitor dossiers plus the one standalone market report.
+    assert payload["count"] == 3
     assert [call["competitor"] for call in calls] == ["Sonatype", "Snyk"]
     assert calls[0]["out_dir"] == str(tmp_path / "sonatype")
     assert calls[1]["out_dir"] == str(tmp_path / "snyk")
     assert calls[0]["formats"] == ("json", "html")
     assert calls[0]["include_web"] is False
+    # The market report is generated once, into its own slug directory.
+    assert len(market_calls) == 1
+    assert market_calls[0]["out_dir"] == str(tmp_path / "market")
+    assert market_calls[0]["formats"] == ("json", "html")
 
 
 def test_evidence_pack_combines_db_and_tavily_and_freezes():
@@ -1171,7 +1191,7 @@ def test_render_html_contains_checker_and_sources():
     assert "JFrog vs Sonatype" in html
 
 
-def test_rendered_report_shows_analyst_frameworks_and_numbered_references():
+def test_rendered_report_drops_market_context_and_frameworks_from_customer_dossier():
     result = generate_report(
         "Sonatype",
         mcp_client=FakeMcpClient(),
@@ -1184,15 +1204,16 @@ def test_rendered_report_shows_analyst_frameworks_and_numbered_references():
 
     html = render_html(result.evidence_pack, result.draft, result.validation)
 
-    # Analyst frameworks render from the optional section metadata.
-    assert "PESTEL" in html
-    assert "Porter's Five Forces" in html
-    assert "Strategic-group positioning" in html
-    assert 'class="posmap"' in html
+    # Part 1 (Market & strategic context) is removed from every customer dossier, along
+    # with its PESTEL, Porter's Five Forces and positioning map ("mapping C").
+    assert "Part 1 · Market &amp; strategic context" not in html
+    assert "PESTEL — macro forces" not in html
+    assert "Porter's Five Forces" not in html
+    assert "Strategic-group positioning" not in html
+    assert 'class="posmap"' not in html
+    # The executive SWOT stays — it lives in the executive summary, not Part 1.
     assert "SWOT —" in html
     assert "Methodology &amp; confidence" in html
-    # Immaterial PESTEL axis is dimmed, not dropped.
-    assert "pcell dim" in html
     # Citations are inline superscripts mapped to a numbered reference list.
     assert '<sup class="c">' in html
     assert '<ol class="refs">' in html
@@ -2027,7 +2048,9 @@ def test_rendered_strategy_market_report_shows_only_validated_agent_sections():
 
     assert "Executive Summary" in html
     assert "Company Snapshot" in html
-    assert "Market And Strategic Context" in html
+    # Part 1 (market & strategic context) is excluded from customer dossiers.
+    assert "Market And Strategic Context" not in html
+    assert "Part 1 · Market &amp; strategic context" not in html
     assert "Technical And Feature Teardown" not in html
     assert "Weighted Buyer Scorecards" not in html
     assert "report-market-analyst" not in lowered
@@ -2052,7 +2075,8 @@ def test_rendered_strategy_market_technical_report_shows_only_validated_agent_se
 
     assert "Executive Summary" in html
     assert "Company Snapshot" in html
-    assert "Market And Strategic Context" in html
+    # Part 1 (market & strategic context) is excluded from customer dossiers.
+    assert "Market And Strategic Context" not in html
     assert "Technical And Feature Teardown" in html
     assert "Supply Chain Security Coverage" in html
     assert "Buyer Fit Matrix" not in html
@@ -2080,7 +2104,8 @@ def test_rendered_strategy_market_technical_field_report_shows_only_validated_ag
 
     assert "Executive Summary" in html
     assert "Company Snapshot" in html
-    assert "Market And Strategic Context" in html
+    # Part 1 (market & strategic context) is excluded from customer dossiers.
+    assert "Market And Strategic Context" not in html
     assert "Technical And Feature Teardown" in html
     assert "Supply Chain Security Coverage" in html
     assert "Buyer Fit Matrix" in html

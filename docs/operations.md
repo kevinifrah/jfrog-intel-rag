@@ -293,6 +293,8 @@ Generate reports for all configured companies except JFrog:
 
 Batch mode is sequential. It runs one complete `JFrog vs <competitor>` report at a time, writes that competitor's artifacts, records pass/fail status, and then moves to the next competitor. A failed competitor does not stop the rest of the batch.
 
+Customer dossiers do **not** include "Part 1 · Market & strategic context" (PESTEL, Porter's Five Forces, positioning map). Those market-wide frameworks are dropped via `report.customer_excluded_sections` and published instead as a separate report. After all competitors finish, any batch run (`--all-companies`, `--deep-map-now`, or `--competitors`) also generates one standalone **Market & Strategic Context** report at `reports/market/report.{json,html,pdf}` — a single market-wide analyst pass over all tracked competitors carrying the general PESTEL, Five Forces, and an all-competitor positioning map. Toggle it with `report.market_report.enabled` in `config.yaml`.
+
 Generate reports only for the current `deep_map_now` focus list except JFrog:
 
 ```bash
@@ -516,6 +518,34 @@ Safe operating rule:
 - use small apply batches
 - inspect `review`
 - validate retrieval after apply
+
+## Deployment
+
+The hosted footprint is two Cloud Run services running as `ci-engine-sa`: the report console (UI)
+and the MCP server. Both are built from the Dockerfiles in `ops/` and reach Cloud SQL, Secret
+Manager, and Vertex AI exactly as the local CLIs do.
+
+Build and roll out a new UI revision:
+
+```bash
+REPO=europe-west1-docker.pkg.dev/jfrog-intel-rag/ci-engine
+
+gcloud builds submit --tag "$REPO/ci-ui:latest" .
+
+gcloud run deploy ci-ui \
+  --image="$REPO/ci-ui:latest" \
+  --region=europe-west1 \
+  --service-account=ci-engine-sa@jfrog-intel-rag.iam.gserviceaccount.com \
+  --add-cloudsql-instances=jfrog-intel-rag:europe-west1:ci-db \
+  --allow-unauthenticated
+```
+
+Redeploy = rebuild the affected image, then `gcloud run deploy` again (new revision, prior flags
+preserved). `config.yaml` and the `reports/` artifacts are baked into the image, so config changes
+and newly generated dossiers need a rebuild + redeploy of the UI image.
+
+Full guide — APIs, Artifact Registry, IAM roles, the MCP service env vars, local container runs, and
+rollback — is in [deployment.md](deployment.md).
 
 ## Tests
 

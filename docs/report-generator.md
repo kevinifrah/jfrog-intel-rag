@@ -176,6 +176,7 @@ Current report skills:
 - `report-confidence-tiering` — claim confidence-tier definitions
 - `report-strategy-analyst`
 - `report-market-analyst`
+- `report-market-overview` — market-wide analyst for the standalone Market & Strategic Context report
 - `report-product-feature-analyst`
 - `report-technical-analyst`
 - `report-buyer-field-analyst`
@@ -192,6 +193,12 @@ The production report mode runs these analyst sections:
 - Buyer/Field Analyst
 - Scoring Agent
 - Report Checker
+
+The Market Analyst still runs for each customer dossier so the Report Checker can validate the
+`market_context` section, but that section is excluded from the rendered customer report (see
+[Market Frameworks And The Customer/Market Split](#market-frameworks-and-the-customermarket-split)).
+On batch runs the standalone market report adds one more pass — the **Market Overview Analyst**
+(`report-market-overview`) — over evidence from all tracked competitors.
 
 The report model is configured in `src/ci_engine/config.yaml`:
 
@@ -277,9 +284,65 @@ Common blocker codes:
 - `missing_product_feature_matrix` - Product/Feature mode lacks the required cited capability matrix.
 - `unsupported_market_share_claim` - a claim asserts a specific market-share figure without cited evidence. Claims that explicitly acknowledge the absence of verified data (e.g. "no independently verified data available", "carries material uncertainty") are accepted and do not trigger this error.
 
+## Market Frameworks And The Customer/Market Split
+
+There are four analyst visual frameworks: PESTEL, Porter's Five Forces, the strategic-group
+positioning map ("mapping C"), and an executive SWOT. As of the current configuration, the three
+*market-wide* frameworks (PESTEL, Five Forces, positioning map) **do not appear in customer
+dossiers** — they belong to a separate market report. Only SWOT (in the Executive Summary) stays in
+the customer dossier.
+
+This is enforced two ways in `src/ci_engine/config.yaml`:
+
+```yaml
+report:
+  frameworks:              # per-competitor customer dossiers
+    pestel: false
+    positioning_map: false
+    five_forces: false
+    swot: true
+  customer_excluded_sections:
+    - market_context       # "Part 1 · Market & strategic context" dropped from customer reports
+  market_report:           # the standalone Market & Strategic Context report
+    enabled: true
+    slug: market
+    title: "Market & Strategic Context"
+    max_companies: 12
+    frameworks:
+      pestel: true
+      five_forces: true
+      positioning_map: true
+```
+
+- `report.frameworks` toggles whether each framework is **generated and rendered** for a per-competitor
+  dossier. A disabled framework is not generated (the analyst prompt drops the framework skill and
+  leaves the field empty) and not rendered (the renderer skips it even if an older `report.json` still
+  carries the metadata).
+- `report.customer_excluded_sections` removes whole sections from the customer-facing HTML/PDF and the
+  table of contents. `market_context` is excluded, so even the market narrative (not just the visuals)
+  is absent from customer dossiers. The section is still generated so the Report Checker can validate
+  it; it is dropped at render time.
+- `report.market_report` configures the standalone market report (below), whose frameworks are forced
+  on regardless of the per-competitor toggles.
+
+### Standalone Market & Strategic Context Report
+
+On any batch run (`--all-companies`, `--deep-map-now`, or `--competitors`), after the per-competitor
+reports finish, `crews/report/run.py` calls `crews/report/market_report.py` to produce one
+market-wide report at `reports/market/report.{json,html,pdf}`.
+
+- It collects evidence across all tracked competitors (capped by `market_report.max_companies`),
+  runs a single market-wide analyst pass driven by `skills/report-market-overview/SKILL.md`, and
+  builds a `MarketOverviewAnalysis` (market thesis, dynamics, risks, plus PESTEL, Five Forces, and a
+  positioning map plotting the whole field — no single competitor focus).
+- It is rendered with the same dossier template but a market header ("Market & Strategic Context",
+  not "JFrog vs …") and no Executive Summary, and with frameworks forced on.
+- It is disabled by setting `report.market_report.enabled: false`.
+
 ## Cross-Report Consistency
 
-Market-level frameworks that do not change between competitors are standardized so all dossiers are directly comparable.
+The market-level content that does not change between competitors is standardized so the market
+report (and any dossier that re-enables a framework) stays directly comparable across runs.
 
 ### Canonical Positioning Map Axes
 
@@ -333,6 +396,9 @@ Files:
 - `report.html` - polished web dossier.
 - `report.pdf` - PDF version generated from validated HTML.
 
+On batch runs the standalone market report is written to `reports/market/` (slug from
+`report.market_report.slug`) with the same three file names.
+
 PDF rendering uses WeasyPrint. The project dependency is declared as:
 
 ```text
@@ -369,7 +435,7 @@ All configured competitors except JFrog:
 
 `--all-companies` reads `companies:` from `src/ci_engine/config.yaml` and excludes `JFrog` by default.
 
-Batch mode is sequential. It completes the full flow for one competitor before moving to the next competitor. A failure for one competitor is captured in the final summary and does not prevent later competitors from running.
+Batch mode is sequential. It completes the full flow for one competitor before moving to the next competitor. A failure for one competitor is captured in the final summary and does not prevent later competitors from running. After the competitors finish, the batch also generates the standalone Market & Strategic Context report at `reports/market/` (unless `report.market_report.enabled` is `false`).
 
 Current `deep_map_now` focus list except JFrog:
 

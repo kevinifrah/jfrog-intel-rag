@@ -19,8 +19,8 @@ This document explains where the important parts of CI Engine live and where to 
 
 - `CLAUDE.md` - operating constitution. It defines core rules such as grounded answers, config as source of truth, and prompt storage in skills.
 - `README.md` - project entry point.
-- `docs/` - deeper documentation for architecture, business context, AI/model behavior, operations, and repo structure.
-- `ops/` - operational or deployment assets if present.
+- `docs/` - deeper documentation for architecture, business context, AI/model behavior, operations, deployment, and repo structure.
+- `ops/` - deployment assets: `Dockerfile.ui` and `Dockerfile.mcp` (Cloud Run images). The root `Dockerfile` mirrors `Dockerfile.ui`. See `docs/deployment.md`.
 - `pyproject.toml` - package metadata and dependencies.
 - `uv.lock` - locked Python dependency graph.
 - `raw_snapshots/` - saved source snapshots for provenance. These are evidence artifacts, not the query-time source of truth.
@@ -122,8 +122,8 @@ Skill-guided chat orchestration.
 FastAPI report console and chat UI.
 
 - `app.py` defines `GET /`, report artifact APIs, PDF download behavior, `POST /api/chat`, and `WS /ws/chat`.
-- `templates/console.html.j2` is the report viewer shell.
-- `static/app.js` handles report selection and chat interaction.
+- `templates/console.html.j2` is the report viewer shell (competitor dropdown + full-width dossier reader + chat drawer).
+- `static/app.js` handles report selection (dropdown) and chat interaction.
 - `static/styles.css` contains the light executive UI styling.
 
 Run locally with:
@@ -143,12 +143,13 @@ Current report package:
 - `crews/report/evidence.py` - DB/Tavily evidence collection, batch MCP adapters, EvidencePack creation.
 - `crews/report/capabilities.py` - product catalog and capability evidence matrix logic.
 - `crews/report/strategy.py`, `market.py`, `product_feature.py`, `technical.py`, `buyer_field.py`, `scoring.py` - analyst prompt inputs, live model calls, parsers, and section conversion.
+- `crews/report/market_report.py` - standalone Market & Strategic Context report: market-wide evidence collection, the market-overview analyst pass, draft build, validation, and render.
 - `crews/report/checker.py` - validation rules that block unsupported or unsafe report output.
 - `crews/report/renderer.py` - HTML, JSON, and PDF artifact rendering.
 - `crews/report/templates/` - Jinja templates for report presentation.
 - `crews/report/schemas.py` - Pydantic contracts for evidence, sections, scores, validation, and render results.
 
-Generated reports are written under `reports/<competitor-slug>/`.
+Per-competitor reports are written under `reports/<competitor-slug>/`; the standalone market report (on batch runs) under `reports/market/`.
 
 ### `retrieve/`
 

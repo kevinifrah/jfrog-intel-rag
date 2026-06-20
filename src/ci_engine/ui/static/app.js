@@ -3,9 +3,8 @@ const state = {
   selected: null,
 };
 
-const competitorIndex = document.querySelector("#competitor-index");
+const reportSelect = document.querySelector("#report-select");
 const reportFrame = document.querySelector("#report-frame");
-const readerTitle = document.querySelector("#reader-title");
 const readerStatus = document.querySelector("#reader-status");
 const pdfLink = document.querySelector("#pdf-link");
 const pdfBlocker = document.querySelector("#pdf-blocker");
@@ -17,8 +16,11 @@ const drawer = document.querySelector("#chat-drawer");
 const chatLog = document.querySelector("#chat-log");
 const chatForm = document.querySelector("#chat-form");
 const chatInput = document.querySelector("#chat-input");
+const chatSubmit = chatForm.querySelector('button[type="submit"]');
+const CHAT_TIMEOUT_MS = 240000;
 
 document.querySelector("#refresh-reports").addEventListener("click", loadReports);
+reportSelect.addEventListener("change", () => selectReport(reportSelect.value));
 askOpen.addEventListener("click", openDrawer);
 askClose.addEventListener("click", closeDrawer);
 chatClear.addEventListener("click", clearChat);
@@ -32,7 +34,7 @@ loadReports();
 
 async function loadReports() {
   const previousSlug = state.selected?.slug || null;
-  competitorIndex.innerHTML = '<li class="ledger-empty">Loading&hellip;</li>';
+  reportSelect.innerHTML = '<option value="">Loading&hellip;</option>';
   const response = await fetch("/api/reports");
   const payload = await response.json();
   state.reports = payload.reports || [];
@@ -42,39 +44,21 @@ async function loadReports() {
 }
 
 function renderIndex() {
-  competitorIndex.innerHTML = "";
+  reportSelect.innerHTML = "";
   if (!state.reports.length) {
-    competitorIndex.innerHTML = '<li class="ledger-empty">No dossiers available yet.</li>';
+    const empty = document.createElement("option");
+    empty.value = "";
+    empty.textContent = "No dossiers available yet";
+    reportSelect.appendChild(empty);
+    reportSelect.disabled = true;
     return;
   }
+  reportSelect.disabled = false;
   for (const report of state.reports) {
-    const item = document.createElement("li");
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "ledger-item";
-    button.dataset.slug = report.slug;
-
-    const name = document.createElement("span");
-    name.className = "ledger-name";
-    name.textContent = report.competitor || report.title || report.slug;
-    button.appendChild(name);
-
-    if (!report.validation_passed) {
-      const flag = document.createElement("span");
-      flag.className = "ledger-flag";
-      flag.textContent = "in review";
-      button.appendChild(flag);
-    }
-
-    button.addEventListener("click", () => selectReport(report.slug));
-    item.appendChild(button);
-    competitorIndex.appendChild(item);
-  }
-}
-
-function markActive(slug) {
-  for (const button of competitorIndex.querySelectorAll(".ledger-item")) {
-    button.classList.toggle("active", button.dataset.slug === slug);
+    const option = document.createElement("option");
+    option.value = report.slug;
+    option.textContent = report.competitor || report.title || report.slug;
+    reportSelect.appendChild(option);
   }
 }
 
@@ -82,9 +66,8 @@ function selectReport(slug) {
   const report = state.reports.find((item) => item.slug === slug);
   if (!report) return;
   state.selected = report;
-  markActive(slug);
+  reportSelect.value = slug;
 
-  readerTitle.textContent = report.title || `JFrog vs ${report.competitor}`;
   readerStatus.textContent = `${report.executive_status_label || "Draft available"} · ${formatDate(report.generated_at)}`;
   reportFrame.src = `/reports/${report.slug}/html?t=${Date.now()}`;
 
@@ -137,20 +120,56 @@ async function submitChat(event) {
   appendMessage("user", question);
   chatInput.value = "";
   const waiting = appendMessage("assistant", "Retrieving evidence…");
-  const response = await fetch("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      question,
-      competitor: state.selected?.competitor || null,
-      report_slug: state.selected?.slug || null,
-      include_web: true,
-      max_evidence: 8,
-    }),
-  });
-  const answer = await response.json();
-  waiting.remove();
-  appendAnswer(answer);
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+  chatSubmit.disabled = true;
+  try {
+    const response = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        question,
+        competitor: state.selected?.competitor || null,
+        report_slug: state.selected?.slug || null,
+        include_web: true,
+        max_evidence: 8,
+      }),
+    });
+    const answer = await parseJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(answer.detail || answer.message || `Chat request failed (${response.status}).`);
+    }
+    waiting.remove();
+    appendAnswer(answer);
+  } catch (error) {
+    waiting.remove();
+    appendMessage("assistant", chatErrorMessage(error));
+  } finally {
+    window.clearTimeout(timeout);
+    chatSubmit.disabled = false;
+    chatInput.focus();
+  }
+}
+
+async function parseJsonResponse(response) {
+  const text = await response.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    if (!response.ok) {
+      return { message: text.slice(0, 240) };
+    }
+    throw error;
+  }
+}
+
+function chatErrorMessage(error) {
+  if (error?.name === "AbortError") {
+    return "The evidence search took too long and was stopped. Please try a narrower question or retry in a moment.";
+  }
+  return `I couldn't complete the evidence search. ${error?.message || "Please try again."}`;
 }
 
 function appendAnswer(answer) {

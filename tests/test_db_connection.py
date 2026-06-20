@@ -32,3 +32,16 @@ def test_healthcheck():
         raise
     finally:
         connection.close_engine()
+
+
+def test_connector_credentials_skip_impersonation_on_cloud_run(monkeypatch):
+    from ci_engine.db import connection
+
+    monkeypatch.setenv("K_SERVICE", "ci-ui")
+    monkeypatch.setattr(
+        connection.google.auth,
+        "default",
+        lambda *args, **kwargs: pytest.fail("Cloud Run should use attached service account credentials"),
+    )
+
+    assert connection._connector_credentials() is None

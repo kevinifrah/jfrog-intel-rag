@@ -252,7 +252,7 @@ def strategy_analysis_to_section(
 def _strategy_framework_metadata(analysis: StrategyAnalysis) -> dict[str, Any]:
     """Stash optional analyst frameworks (SWOT, confidence tiering) into section metadata."""
     meta: dict[str, Any] = {}
-    if analysis.swot is not None:
+    if analysis.swot is not None and bool(config_get("report.frameworks.swot", True)):
         swot = analysis.swot
 
         def _items(items: Sequence[Any]) -> list[dict[str, Any]]:

@@ -1,0 +1,16 @@
+.git/
+.venv/
+.claude/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.env
+*.env
+raw_snapshots/
+deep_map.log
+tests/
+docs/
+.DS_Store
+reports/.DS_Store
+*-key.json
+*service-account*.json

@@ -39,13 +39,13 @@ models:
     temperature: 0.1
     thinking: none
     max_tokens: 2500
-    timeout_s: 30
+    timeout_s: 60
   chat_fallback:
     name: "claude-sonnet-4-6"
     temperature: 0.1
     thinking: medium
     max_tokens: 2500
-    timeout_s: 20
+    timeout_s: 45
   web_research:
     name: "claude-sonnet-4-6"
     temperature: 0.0
@@ -81,6 +81,38 @@ retrieval:
     decay_base: 0.5
 
 # --- Interactive report console and grounded chat ---
+# --- Report generation ---
+report:
+  # Toggle optional Market Analyst visual frameworks on/off for PER-COMPETITOR
+  # customer dossiers. Disabled frameworks are neither generated (the analyst is not
+  # asked for them) nor rendered. PESTEL, Porter's Five Forces and the positioning map
+  # ("mapping C") are OFF in customer dossiers — they belong to the standalone market
+  # report (see report.market_report below). SWOT lives in the executive summary and
+  # stays on.
+  frameworks:
+    pestel: false           # PESTEL macro-forces table
+    positioning_map: false  # strategic-group positioning map ("mapping C")
+    five_forces: false      # Porter's Five Forces
+    swot: true              # executive SWOT
+  # Sections dropped from the customer-facing per-competitor dossier (HTML/PDF + TOC).
+  # "Part 1 · Market & strategic context" is removed from every customer report; its
+  # market-wide view is published separately as the standalone market report.
+  customer_excluded_sections:
+    - market_context
+  # Standalone "Market & Strategic Context" report. Produced once per batch run
+  # (--all-companies / --deep-map-now / --competitors), it carries the general PESTEL,
+  # Porter's Five Forces and an all-competitor positioning map, regardless of the
+  # per-competitor framework toggles above.
+  market_report:
+    enabled: true
+    slug: market
+    title: "Market & Strategic Context"
+    max_companies: 12          # cap players plotted on the positioning map
+    frameworks:
+      pestel: true
+      five_forces: true
+      positioning_map: true
+
 chat:
   report_root: "reports"
   tavily_default_depth: "ultra-fast"

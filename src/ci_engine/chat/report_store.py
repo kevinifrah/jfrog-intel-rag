@@ -74,6 +74,8 @@ class ReportArtifactStore:
         findings = _list(validation.get("findings"))
         renders = _list(data.get("renders"))
         competitor = str(draft.get("competitor") or _title_from_slug(slug))
+        draft_metadata = _dict(draft.get("metadata"))
+        is_market_report = _clean_text(draft_metadata.get("report_kind")) == "market"
         generated_at = _clean_text(draft.get("generated_at")) or _mtime_iso(json_path)
         validation_passed = validation.get("passed")
         if validation_passed is not None:
@@ -104,12 +106,18 @@ class ReportArtifactStore:
             "html": str(html_path) if html_path.exists() else "",
             "pdf": str(pdf_path) if pdf_path.exists() else "",
         }
+        # The standalone market report stands on its own — it is not a "JFrog vs X"
+        # pairing, so it carries its own title rather than the competitor template.
+        if is_market_report:
+            title = _clean_text(draft_metadata.get("report_title")) or competitor
+        else:
+            title = f"JFrog vs {competitor}"
         return ReportSummary(
             slug=_clean_slug(slug),
             competitor=competitor,
-            title=f"JFrog vs {competitor}",
+            title=title,
             generated_at=generated_at,
-            draft_mode=_clean_text(_dict(draft.get("metadata")).get("draft_mode")),
+            draft_mode=_clean_text(draft_metadata.get("draft_mode")),
             validation_passed=validation_passed,
             html_available=html_path.exists(),
             pdf_available=pdf_path.exists(),

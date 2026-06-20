@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>JFrog vs {{ competitor }} — Competitive Intelligence Dossier</title>
+<title>{{ doc_title }} — Competitive Intelligence Dossier</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -107,11 +107,11 @@
 <body>
 <div class="wrap">
 
-  <p class="eyebrow">JFrog Competitive Intelligence · Dossier</p>
-  <h1>JFrog vs {{ competitor }}</h1>
-  <p class="lead">A strategic and technical teardown of {{ competitor }} as a JFrog competitor across the software supply chain, set in its market context.</p>
+  <p class="eyebrow">{{ doc_eyebrow }}</p>
+  <h1>{{ doc_title }}</h1>
+  <p class="lead">{{ doc_lead }}</p>
   <div class="hdr-meta">
-    <span>Competitor: <b>{{ competitor }}</b></span>
+    <span>{{ doc_meta_label }}: <b>{{ competitor }}</b></span>
     <span>Audience: <b>executive + technical</b></span>
     <span>Generated: <b>{{ generated_date }}</b></span>
   </div>
@@ -125,6 +125,7 @@
   {% endif %}
 
   {# ---------------- Executive summary ---------------- #}
+  {% if show_executive %}
   <h2 id="executive-summary">Executive Summary</h2>
   {% if executive.thesis and executive.thesis.text %}
   <div class="callout">
@@ -164,6 +165,7 @@
     <div class="q o"><h4>Opportunities</h4><ul>{% for i in executive.swot.opportunities %}<li>{{ i.text }}{{ cite(i.cites) }}</li>{% endfor %}</ul></div>
     <div class="q t"><h4>Threats</h4><ul>{% for i in executive.swot.threats %}<li>{{ i.text }}{{ cite(i.cites) }}</li>{% endfor %}</ul></div>
   </div>
+  {% endif %}
   {% endif %}
 
   {# ---------------- Body sections ---------------- #}

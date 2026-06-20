@@ -99,6 +99,10 @@ def main(argv: list[str] | None = None) -> None:
                 }
             )
 
+    market_summary = _maybe_generate_market_report(args, multiple=multiple)
+    if market_summary is not None:
+        summaries.append(market_summary)
+
     if not multiple:
         print(json.dumps(_single_summary(summaries[0]), indent=2, sort_keys=True))
         if summaries[0].get("error"):
@@ -123,6 +127,62 @@ def main(argv: list[str] | None = None) -> None:
     )
     if any(not summary.get("passed") for summary in summaries):
         raise SystemExit(1)
+
+
+def _maybe_generate_market_report(
+    args: argparse.Namespace,
+    *,
+    multiple: bool,
+) -> dict[str, Any] | None:
+    """On a batch run, also publish the standalone Market & Strategic Context report.
+
+    Part 1 (market context) is dropped from every customer dossier; its market-wide
+    view is published once per batch run as a separate report instead.
+    """
+    from ci_engine.crews.report.market_report import (  # noqa: PLC0415
+        generate_market_report,
+        market_report_enabled,
+        market_report_slug,
+        market_report_title,
+    )
+
+    if not multiple or not market_report_enabled():
+        return None
+
+    slug = market_report_slug()
+    out_dir = _out_dir_for(args.out_dir, slug, multiple=True)
+    formats = tuple(part.strip() for part in args.formats.split(",") if part.strip())
+    title = market_report_title()
+    try:
+        _progress(f"[{title}] starting standalone market report")
+        result = generate_market_report(
+            out_dir=out_dir,
+            formats=formats,
+            progress=_progress,
+        )
+        _progress(
+            f"[{title}] completed: "
+            f"passed={result.validation.passed}; "
+            f"evidence={len(result.evidence_pack.items)}; "
+            f"renders={len(result.renders)}"
+        )
+        return {
+            "competitor": title,
+            "passed": result.validation.passed,
+            "evidence_count": len(result.evidence_pack.items),
+            "gap_count": len(result.evidence_pack.gaps),
+            "renders": [render.model_dump(mode="json") for render in result.renders],
+        }
+    except Exception as exc:
+        _progress(f"[{title}] failed: {exc}")
+        return {
+            "competitor": title,
+            "passed": False,
+            "error": str(exc),
+            "evidence_count": 0,
+            "gap_count": 0,
+            "renders": [],
+        }
 
 
 def _selected_competitors(args: argparse.Namespace) -> list[str]:
