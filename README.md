@@ -648,6 +648,11 @@ Claude Sonnet as the answering model, and owns Telegram pairing/channel state. I
 prompt lives in [ops/openclaw/AGENTS.md](ops/openclaw/AGENTS.md): use MCP evidence first, then web
 search only to validate freshness, resolve contradictions, or cover gaps.
 
+Telegram is implemented by OpenClaw's Telegram channel runtime on the VM, not by a CI Engine webhook
+or DB table. The BotFather token is installed as `TELEGRAM_BOT_TOKEN` in the Gateway `.env`, first
+DM access uses OpenClaw pairing, and production access should be hardened to numeric Telegram
+allowlists. The full runbook is in [Deployment](docs/deployment.md#telegram-implementation).
+
 Build and deploy (after one-time project/IAM setup — see the deployment guide):
 
 ```bash

@@ -290,7 +290,8 @@ Current operating target:
 - runtime: Docker Compose, service `openclaw-gateway`
 - local UI tunnel: `127.0.0.1:18789`
 - model: Anthropic Claude Sonnet
-- Telegram ingress: OpenClaw channel runtime from the VM; no public CI Engine webhook
+- Telegram ingress: OpenClaw channel runtime from the VM; no public CI Engine webhook or Cloud SQL
+  Telegram tables
 - evidence policy: MCP first; web search/fetch only to validate freshness, resolve contradictions,
   or cover evidence gaps
 
@@ -313,6 +314,24 @@ gcloud compute ssh openclaw-gateway \
 ```
 
 Then browse to `http://127.0.0.1:18789`.
+
+Telegram operating notes:
+
+- BotFather token lives in `~/openclaw/.env` as `TELEGRAM_BOT_TOKEN`.
+- First DM access should use `channels.telegram.dmPolicy: "pairing"`.
+- After pairing, harden to `dmPolicy: "allowlist"` with numeric Telegram user IDs in `allowFrom`.
+- Keep groups disabled until DM behavior is validated.
+- For groups, keep BotFather privacy mode enabled and configure explicit group chat IDs under
+  `channels.telegram.groups` with `requireMention: true`.
+
+Telegram checks:
+
+```bash
+gcloud compute ssh openclaw-gateway \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b \
+  --command='cd ~/openclaw && docker compose exec -T openclaw-gateway openclaw config get channels.telegram && docker compose exec -T openclaw-gateway openclaw pairing list telegram'
+```
 
 ## Competitive Reports
 

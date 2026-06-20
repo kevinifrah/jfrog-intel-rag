@@ -59,3 +59,46 @@ If OpenClaw tool policy is restricted, keep these surfaces available:
 - `ci-engine__*` for MCP evidence retrieval
 - `web_search` and `web_fetch` for post-MCP validation and gap coverage
 - `bundle-mcp` or `group:plugins` in sandbox tool policy when sandboxed sessions hide MCP tools
+
+## Telegram Runtime
+
+Telegram is owned by OpenClaw, not CI Engine. The VM Gateway receives messages through OpenClaw's
+Telegram channel runtime, so there is no CI Engine webhook and no Telegram-specific Cloud SQL
+schema.
+
+Current policy:
+
+- store the BotFather token in `~/openclaw/.env` as `TELEGRAM_BOT_TOKEN`
+- start in DM `pairing` mode
+- after first approval, switch to numeric `allowFrom` allowlists
+- keep groups disabled until DM answers are validated
+- when enabling groups, allow explicit group IDs and require bot mention
+
+Minimal enablement on the VM:
+
+```bash
+cd ~/openclaw
+
+docker compose exec -T openclaw-gateway openclaw config patch --stdin <<'JSON5'
+{
+  channels: {
+    telegram: {
+      enabled: true,
+      dmPolicy: "pairing",
+      groupPolicy: "disabled"
+    }
+  }
+}
+JSON5
+
+docker compose up -d --force-recreate
+```
+
+Pairing:
+
+```bash
+docker compose exec -T openclaw-gateway openclaw pairing list telegram
+docker compose exec -T openclaw-gateway openclaw pairing approve telegram <CODE>
+```
+
+After pairing, move to `dmPolicy: "allowlist"` with numeric Telegram user IDs.

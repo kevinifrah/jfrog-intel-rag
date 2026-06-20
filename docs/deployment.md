@@ -306,11 +306,15 @@ Useful tool entrypoints for assistant behavior:
 - `latest_updates`, `find_evidence_gaps`, `coverage_status` - freshness and gap checks before
   web validation
 
-### Manual Telegram BotFather setup
+### Telegram implementation
 
 For the current VM/Docker Gateway, Telegram does not require a public Cloud Run webhook. OpenClaw
 can receive Telegram messages through its channel runtime from the VM, so the VM only needs outbound
-internet access plus the BotFather token in OpenClaw configuration.
+internet access plus the BotFather token in OpenClaw configuration. CI Engine does not run a
+Telegram webhook service, does not store Telegram sessions in Cloud SQL, and does not answer
+Telegram directly.
+
+#### Create the bot
 
 1. In Telegram, message `@BotFather`.
 2. Run `/newbot`, choose a display name and username, and give the token to OpenClaw's Telegram
@@ -320,18 +324,192 @@ internet access plus the BotFather token in OpenClaw configuration.
    ```text
    start - Start the CI assistant
    help - Show help
+   status - Show bot status
+   whoami - Show your Telegram ID
    ```
 
 4. For groups, run `/setprivacy` and keep privacy enabled unless every group message should reach
    OpenClaw.
-5. Complete OpenClaw's Telegram DM pairing/allowlist flow manually in the OpenClaw Gateway.
+
+#### Install the token on the Gateway VM
+
+SSH into the VM and write the BotFather token to `~/openclaw/.env`. The Compose file already loads
+that env file into the container.
+
+```bash
+gcloud compute ssh openclaw-gateway \
+  --project=jfrog-intel-rag \
+  --zone=europe-west1-b
+
+cd ~/openclaw
+read -rsp "Paste Telegram bot token: " TELEGRAM_BOT_TOKEN; echo
+
+cp .env ".env.bak.$(date +%Y%m%d-%H%M%S)"
+
+tmp="$(mktemp)"
+awk -F= '$1!="TELEGRAM_BOT_TOKEN" {print}' .env > "$tmp"
+printf '\nTELEGRAM_BOT_TOKEN=%s\n' "$TELEGRAM_BOT_TOKEN" >> "$tmp"
+mv "$tmp" .env
+chmod 600 .env
+
+unset TELEGRAM_BOT_TOKEN
+```
+
+#### Enable Telegram in pairing mode
+
+Start with direct messages only. Groups stay disabled until DM pairing and CI answers are validated.
+
+```bash
+cd ~/openclaw
+
+docker compose exec -T openclaw-gateway openclaw config patch --stdin <<'JSON5'
+{
+  channels: {
+    telegram: {
+      enabled: true,
+      dmPolicy: "pairing",
+      groupPolicy: "disabled"
+    }
+  }
+}
+JSON5
+
+docker compose up -d --force-recreate
+docker compose logs --tail=120 openclaw-gateway
+```
+
+#### Pair the first DM
+
+In Telegram, DM the bot:
+
+```text
+/start
+```
+
+Then approve the pending pairing on the VM:
+
+```bash
+cd ~/openclaw
+
+docker compose exec -T openclaw-gateway openclaw pairing list telegram
+docker compose exec -T openclaw-gateway openclaw pairing approve telegram <CODE>
+```
+
+Pairing codes expire after 1 hour. After approval, test:
+
+```text
+What is your mission?
+```
+
+Expected behavior: the bot identifies itself as the JFrog Competitive Intelligence assistant.
+
+#### Harden DM access
+
+After pairing succeeds, move from pairing mode to a durable numeric allowlist. Use your numeric
+Telegram user ID from the pairing output, OpenClaw logs, or `/whoami` if available.
+
+```bash
+cd ~/openclaw
+read -rp "Telegram numeric user ID: " TG_USER_ID
+
+docker compose exec -T openclaw-gateway openclaw config patch --stdin <<JSON5
+{
+  channels: {
+    telegram: {
+      enabled: true,
+      dmPolicy: "allowlist",
+      allowFrom: ["$TG_USER_ID"],
+      groupPolicy: "disabled"
+    }
+  },
+  commands: {
+    ownerAllowFrom: ["telegram:$TG_USER_ID"]
+  }
+}
+JSON5
+
+docker compose restart openclaw-gateway
+```
+
+Validate with a real CI question from Telegram:
+
+```text
+Use ci-engine MCP only. Compare JFrog and GitLab on security. Give me the practical takeaway.
+```
+
+Expected behavior: OpenClaw retrieves from `ci-engine` MCP first, synthesizes an assistant-style
+answer, and only uses web validation if the MCP evidence is stale, missing, contradictory, or high
+impact.
+
+#### Optional group access
+
+Keep BotFather privacy mode enabled unless the bot intentionally needs every group message. For
+groups, allow explicit group IDs and require a mention. Negative Telegram supergroup IDs like
+`-1001234567890` belong under `channels.telegram.groups`, not `allowFrom`.
+
+```bash
+cd ~/openclaw
+read -rp "Telegram numeric user ID: " TG_USER_ID
+read -rp "Telegram group chat ID: " TG_GROUP_ID
+
+docker compose exec -T openclaw-gateway openclaw config patch --stdin <<JSON5
+{
+  channels: {
+    telegram: {
+      enabled: true,
+      dmPolicy: "allowlist",
+      allowFrom: ["$TG_USER_ID"],
+      groupPolicy: "allowlist",
+      groups: {
+        "$TG_GROUP_ID": {
+          requireMention: true
+        }
+      }
+    }
+  }
+}
+JSON5
+
+docker compose restart openclaw-gateway
+```
+
+Test from the group with:
+
+```text
+@<bot_username> What is your mission?
+```
+
+#### Telegram troubleshooting
+
+Useful checks:
+
+```bash
+cd ~/openclaw
+docker compose ps
+docker compose logs --tail=160 openclaw-gateway
+docker compose exec -T openclaw-gateway openclaw config get channels.telegram
+docker compose exec -T openclaw-gateway openclaw pairing list telegram
+```
+
+Common failures:
+
+- `getMe returned 401` - the BotFather token is wrong or stale; update `TELEGRAM_BOT_TOKEN` and
+  recreate the container.
+- `getUpdates 409` - another process, webhook, or Gateway is using the same bot token.
+- DM ignored - pairing is pending, `allowFrom` is missing your numeric user ID, or the Gateway was
+  not restarted after token/config changes.
+- Group ignored - privacy mode/permissions, missing group ID under `channels.telegram.groups`,
+  missing mention while `requireMention: true`, or sender not allowed.
+- Generic/non-CI answer - verify [ops/openclaw/AGENTS.md](../ops/openclaw/AGENTS.md) is installed,
+  create a new session, and confirm `ci-engine` MCP is healthy.
 
 ### Manual OpenClaw Gateway setup
 
 1. Install/run OpenClaw using its official local Node flow, Docker flow, or Compute Engine Gateway
    flow.
 2. Open the OpenClaw Gateway control UI.
-3. Add/configure the Telegram channel with the BotFather token.
+3. Add/configure the Telegram channel with the BotFather token or follow
+   [Telegram implementation](#telegram-implementation).
 4. Add/configure the CI Engine MCP server:
 
    ```text
