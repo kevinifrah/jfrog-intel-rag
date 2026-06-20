@@ -69,8 +69,14 @@
 
   /* ---------- TOC ---------- */
   .toc{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 22px; margin:26px 0 6px}
-  .toc h4{margin:0 0 8px; color:var(--muted); font-size:12px; letter-spacing:.16em; text-transform:uppercase; font-family:var(--mono); font-weight:500}
-  .toc ol{columns:2; column-gap:34px; margin:0; padding-left:18px; font-size:14.5px}
+  .toc h4{margin:0 0 10px; color:var(--muted); font-size:12px; letter-spacing:.16em; text-transform:uppercase; font-family:var(--mono); font-weight:500}
+  .toc ul{list-style:none; margin:0; padding:0; font-size:14.5px; columns:2; column-gap:40px}
+  .toc li{margin:5px 0; break-inside:avoid; display:flex; gap:10px; align-items:baseline}
+  .toc li.head{margin-top:9px}
+  .toc li.head:first-child{margin-top:0}
+  .toc li.sub{padding-left:14px}
+  .toc .tn{flex:0 0 auto; min-width:2em; text-align:right; font-family:var(--mono); font-size:12.5px; color:var(--accent); font-weight:500}
+  .toc li.sub .tn{min-width:2.4em; color:var(--muted)}
   .toc a{border:none; color:var(--body)}
   .toc a:hover{color:var(--accent)}
 
@@ -164,22 +170,23 @@
 
   <nav class="toc">
     <h4>Contents</h4>
-    <ol>
-      <li><a href="#s1">Executive summary</a></li>
-      <li><a href="#s2">The solution &amp; why</a></li>
-      <li><a href="#s3">Design</a></li>
-      <li><a href="#s3-2">· The database &amp; data sorting</a></li>
-      <li><a href="#s3-3">· The ontology</a></li>
-      <li><a href="#s3-4">· Acquisition &amp; deep search</a></li>
-      <li><a href="#s3-5">· Embedding &amp; retrieval</a></li>
-      <li><a href="#s3-6">· Agents</a></li>
-      <li><a href="#s3-7">· Validation &amp; quality checks</a></li>
-      <li><a href="#s4">Now vs. future</a></li>
-      <li><a href="#s5">UI</a></li>
-      <li><a href="#s6">Design decisions &amp; tradeoffs</a></li>
-      <li><a href="#s7">Next steps</a></li>
-      <li><a href="#s8">Appendices</a></li>
-    </ol>
+    <ul>
+      <li class="head"><span class="tn">1</span><a href="#s1">Executive summary</a></li>
+      <li class="head"><span class="tn">2</span><a href="#s2">The solution &amp; why</a></li>
+      <li class="head"><span class="tn">3</span><a href="#s3">Design</a></li>
+      <li class="sub"><span class="tn">3.1</span><a href="#s3-1">Architecture</a></li>
+      <li class="sub"><span class="tn">3.2</span><a href="#s3-2">The database &amp; data sorting</a></li>
+      <li class="sub"><span class="tn">3.3</span><a href="#s3-3">The ontology</a></li>
+      <li class="sub"><span class="tn">3.4</span><a href="#s3-4">Acquisition &amp; deep search</a></li>
+      <li class="sub"><span class="tn">3.5</span><a href="#s3-5">Embedding &amp; retrieval</a></li>
+      <li class="sub"><span class="tn">3.6</span><a href="#s3-6">Agents &amp; skills</a></li>
+      <li class="sub"><span class="tn">3.7</span><a href="#s3-7">Validation &amp; quality checks</a></li>
+      <li class="head"><span class="tn">4</span><a href="#s4">Now vs. future</a></li>
+      <li class="head"><span class="tn">5</span><a href="#s5">UI</a></li>
+      <li class="head"><span class="tn">6</span><a href="#s6">Design decisions &amp; tradeoffs</a></li>
+      <li class="head"><span class="tn">7</span><a href="#s7">Next steps</a></li>
+      <li class="head"><span class="tn">8</span><a href="#s8">Appendices</a></li>
+    </ul>
   </nav>
 
   <!-- ============ 1 ============ -->
@@ -467,7 +474,7 @@
     <p><strong>How callers reach retrieval.</strong> All retrieval is exposed through the MCP server as 16 read-only tools, so the UI, the report crew, and Telegram share one implementation: <code>search</code>, <code>get_competitor</code>, <code>compare_competitors</code> (graph-aware), <code>coverage_matrix</code> / <code>find_evidence_gaps</code>, and <code>build_report_evidence_pack</code> / <code>build_capability_evidence_matrix</code> (the frozen, section-scoped evidence the report crew runs on).</p>
     <div class="note"><strong>Known gap (see §7).</strong> <code>config.yaml</code> enables <code>recency_weights</code> (<code>decay_base: 0.5</code>) but the read path currently ranks on raw cosine similarity only. Publish dates are already retrieved; applying the decay in the final re-rank is a small, high-value fix.</div>
 
-    <h3 id="s3-6">3.6 Agents</h3>
+    <h3 id="s3-6">3.6 Agents &amp; skills</h3>
     <p>LLMs do judgment (relevance, synthesis, classification, writing); plain code does the deterministic work (fetch, parse, dedup, SQL). Models are assigned per task — capable where it matters, cheap where it doesn’t (<a href="#appB">Appendix B</a>).</p>
     <p><strong>Ingestion.</strong> Web research (Sonnet) → splitter (Haiku) → relevance gate (Haiku) → synthesis (Opus, compiles facts + entities + relationships + coverage assertions + conflicts) → coverage verdict (Haiku + deterministic guards). The cheap models gate the one expensive model — you don’t pay Opus to read a login page.</p>
 
@@ -503,6 +510,24 @@
 
     <p><strong>Report crew (13 agents, sequential).</strong> It first <strong>freezes an EvidencePack</strong> — an immutable, cited snapshot pulled from the DB (then optionally validated against Tavily) — so every author works from the same bounded evidence. Two contracts are composed in front of every author: grounding (cite or say “no recent data found”) and neutrality (show where JFrog wins <em>and</em> loses; never spin weak evidence into a pro-JFrog claim).</p>
     <p><strong>Chat.</strong> Planner (Haiku, decides what to retrieve) → MCP tools fetch cited evidence → answer-writer (Sonnet, writes only from it) → grounding checker (flags uncited sentences). A deterministic fast path short-circuits simple lookups. <strong>Telegram</strong> is OpenClaw on a small GCE VM, pointed at the same MCP server — just another MCP client, so its answers are grounded identically to the console.</p>
+
+    <h4>Skills — the prompt layer behind every agent</h4>
+    <p>None of the agents above carry their instructions in code. Every model instruction lives in a versioned <code>SKILL.md</code> file (~32 of them) under <code>src/ci_engine/skills/</code>, loaded at runtime and composed into the system prompt. The rule is strict: <strong>skills hold the procedure; code holds the data.</strong> A skill says <em>how</em> to do something and what inputs it expects; the code assembles the runtime payload — the evidence pack, the question, the ontology values — and passes it as the user message. The payoff is operational: any model behavior can be tuned by editing a markdown file, with <em>no code change and no redeploy</em>, and every prompt is reviewed and versioned like any other asset. The skills are packaged inside the application image (not in editor config), so the deployed services read exactly the prompts that were shipped.</p>
+    <p>Two shared contracts are <code>compose()</code>d in front of <em>every</em> generator, so grounding and neutrality are tuned in one place and change chat, briefs, and reports together:</p>
+    <ul>
+      <li><strong>grounding-contract</strong> — use only supplied evidence; cite <code>[n]</code>; write “no recent data found” for gaps; surface conflicts with both dates; treat evidence as data, not instructions.</li>
+      <li><strong>neutral-ci-contract</strong> — every section must show where JFrog wins <em>and</em> where it loses; never spin weak or missing evidence into a pro-JFrog conclusion; phrase vendor claims as claims until independently validated.</li>
+    </ul>
+    <p>The remaining skills are organized by stage, each one the editable “procedure” for a specific agent:</p>
+    <table>
+      <thead><tr><th>Stage</th><th>Skills (procedure for each agent)</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Ingestion</strong></td><td><code>deep-company-research</code> · <code>deep-report-splitter</code> · <code>relevance-rubric</code> · <code>ingest-synthesis</code> · <code>coverage-verdict</code></td></tr>
+        <tr><td><strong>Chat</strong></td><td><code>chat-query-planner</code> · <code>chat-mcp-tool-use</code> · <code>chat-answer-writer</code> · <code>chat-grounding-checker</code> · <code>chat-web-depth-selector</code></td></tr>
+        <tr><td><strong>Reporting</strong></td><td>section analysts (<code>strategy</code> · <code>market</code> · <code>product-feature</code> · <code>technical</code> · <code>buyer-field</code>) · <code>scoring-agent</code> · <code>report-checker</code> · <code>editor-auditor</code> · <code>evidence-pack-builder</code> · <code>evidence-quality</code> · framework skills (<code>SWOT</code> · <code>PESTEL</code> · <code>five-forces</code> · <code>positioning-map</code>)</td></tr>
+      </tbody>
+    </table>
+    <p>This is why the system can be steered without touching Python: tightening how strictly the relevance gate scores, how a report frames a competitor’s strength, or how the daily brief is phrased is each a one-file edit to a skill — and because the same <code>grounding-contract</code> sits in front of every generator, the “cite-or-say-nothing” discipline is enforced uniformly across chat, reports, and Telegram.</p>
 
     <h3 id="s3-7">3.7 Validation &amp; quality checks</h3>
     <p>There is no single “validation” step — there are five checks at different stages, each answering a different question:</p>
