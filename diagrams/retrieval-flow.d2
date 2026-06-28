@@ -1,0 +1,81 @@
+direction: down
+
+title: |md
+  # CI Engine — Retrieval Flow
+  vector-only search vs graph-augmented compare_competitors — both read ACTIVE rows only
+| {near: top-center}
+
+query: Query (MCP tool call) {shape: document}
+
+pathA: PATH A — retrieve() / MCP search {
+  style.fill: "#dbeafe"
+  embed_q: "gemini.embed_query() — RETRIEVAL_QUERY @ 1536d" {shape: rectangle}
+  alias: "normalize + expand_dimension_aliases" {shape: rectangle}
+  vsearch: "repository.vector_search()" {shape: hexagon; style.fill: "#bfdbfe"}
+  vsteps: |md
+    **inside vector_search()**
+    1. empty-filter guards → [] (unknown ≠ absent)
+    2. base filter: c.status='active' AND s.status='active'
+    3. axis / competitor / dimension (LATERAL on assertions)
+    4. ORDER BY embedding distance (cosine, rides HNSW)
+    5. LIMIT k_fetch (over-fetch)
+    6. Python: drop below similarity_threshold, trim to top_k
+    7. attach citations_for_sources()
+  |
+  perfair: "per-competitor quota (multi-competitor fairness)" {shape: rectangle}
+  embed_q -> alias -> vsearch -> vsteps -> perfair
+}
+
+resultA: |md
+  ### cited chunks + missing[]
+  missing from dimension_coverage_status:
+  known_absent / planned_only / unknown_coverage
+| {shape: document; style.fill: "#d1fae5"}
+
+pathB: PATH B — MCP compare_competitors {
+  style.fill: "#dcfce7"
+  direct: "active_chunks(competitor) — direct chunks" {shape: rectangle}
+  gexpand: "graph_related_source_ids()" {shape: hexagon; style.fill: "#bbf7d0"}
+  gsteps: |md
+    **expand_entities() — WITH RECURSIVE**
+    - anchor: seed entities by name (depth 0)
+    - step: neighbors BOTH directions (undirected)
+    - stop: depth < max_graph_hops (=2)
+    - cycle guard: NOT id = ANY(path)
+    → reachable entity ids
+    **then** relationships JOIN sources
+    WHERE s.status='active' → source_ids
+  |
+  gchunks: "active_chunks(source_ids=...) — graph-linked" {shape: rectangle}
+  dedupe: "dedupe + merge (direct + graph)" {shape: rectangle}
+  direct -> dedupe
+  gexpand -> gsteps -> gchunks -> dedupe
+}
+
+resultB: "grouped chunks by dimension + missing coverage" {shape: document; style.fill: "#d1fae5"}
+
+chunks_tbl: "chunks (ACTIVE only) — HNSW WHERE status='active'" {shape: cylinder; class: db}
+graph_tbl: "entities + relationships" {shape: cylinder; class: db}
+status_tbl: dimension_coverage_status {shape: cylinder; class: db}
+
+query -> pathA
+query -> pathB
+
+vsearch -> chunks_tbl: cosine search {style.stroke: "#2563eb"}
+pathA -> resultA
+resultA -> status_tbl: missing reasons {style.stroke-dash: 5}
+
+gexpand -> graph_tbl: walk edges {style.stroke: "#16a34a"}
+direct -> chunks_tbl: read {style.stroke: "#16a34a"}
+gchunks -> chunks_tbl: read by source_id {style.stroke: "#16a34a"}
+pathB -> resultB
+
+note: |md
+  **Graph never answers directly.** It only widens the set of source_ids;
+  the text always comes from ACTIVE chunks. Vector path ranks by
+  similarity; graph walk is unranked reachability.
+| {near: bottom-center; style.fill: "#fef9c3"}
+
+classes: {
+  db: {style: {fill: "#eef2ff"; stroke: "#6366f1"}}
+}

@@ -14,3 +14,9 @@ deep_map.log
 
 # Diagram plugin ephemeral state
 .diagram/
+
+# Presentation decks
+decks/
+
+# Microsoft Office temp/lock files
+~$*

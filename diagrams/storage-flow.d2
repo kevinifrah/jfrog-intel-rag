@@ -1,0 +1,81 @@
+direction: down
+
+title: |md
+  # CI Engine — Storage / Ingestion Flow
+  pipeline.ingest_candidate() — one candidate splits into 3 stores
+| {near: top-center}
+
+candidate: Candidate (from acquire lanes) {shape: document}
+fetch: "Get raw text — web_lane.fetch() (ONLY internet touch)" {shape: rectangle}
+hash: "content_hash = sha256(text)" {shape: rectangle}
+dedup: "Dedup gate: source_exists(url, hash)?" {shape: diamond}
+relevance: "Relevance gate (trusted / scoped / score>=threshold)" {shape: diamond}
+drop: skipped (below threshold) {shape: oval; style.fill: "#e5e7eb"}
+
+synth: |md
+  ### compiler.synthesize()
+  LLM compile → structured object:
+  compiled · entities · relationships · facts · conflicts
+| {style.fill: "#fde68a"}
+
+fork: |md
+  ### THE FORK
+  one object → three stores
+| {style.fill: "#fca5a5"}
+
+vector: VECTOR store {
+  style.fill: "#dbeafe"
+  chunk: "chunk_text() — size 1200 / overlap 150" {shape: rectangle}
+  embed: |md
+    gemini.embed_documents()
+    gemini-embedding-001 @ 1536d
+    RETRIEVAL_DOCUMENT
+  |
+  chunks_tbl: "chunks (embedding + denorm metadata)" {shape: cylinder; class: db}
+  chunk -> embed -> chunks_tbl
+}
+
+graph: GRAPH store {
+  style.fill: "#dcfce7"
+  ent: "upsert_entity() — unique(name,type)" {shape: rectangle}
+  rel: "add_relationship() — edge keeps source_id" {shape: rectangle}
+  ent_tbl: entities {shape: cylinder; class: db}
+  rel_tbl: relationships {shape: cylinder; class: db}
+  ent -> ent_tbl
+  rel -> rel_tbl
+}
+
+ledger: COVERAGE LEDGER {
+  style.fill: "#f3e8ff"
+  assert: source_assertions() {shape: rectangle}
+  assert_tbl: dimension_coverage_assertions {shape: cylinder; class: db}
+  status_tbl: "dimension_coverage_status (rollup)" {shape: cylinder; class: db}
+  assert -> assert_tbl -> status_tbl: refresh rollup
+}
+
+src_tbl: |md
+  ### sources table
+  status: active / stale / superseded / dead
+  (THE lifecycle ledger)
+| {shape: cylinder; class: db; style.fill: "#fee2e2"}
+
+supersede: "supersede_older() — older same competitor+dimension → superseded" {shape: rectangle; style.fill: "#fecaca"}
+
+candidate -> fetch -> hash -> dedup
+dedup -> relevance: new
+dedup -> src_tbl: "hit: re-stamp meta, NO re-embed" {style.stroke-dash: 5; style.stroke: "#999"}
+relevance -> synth: passed
+relevance -> drop: below threshold {style.stroke-dash: 5}
+
+synth -> fork
+fork -> vector: compiled prose
+fork -> graph: entities + relationships
+fork -> ledger: coverage verdicts
+
+synth -> src_tbl: write source row + citations
+src_tbl -> supersede: after chunks written
+supersede -> chunks_tbl: flip older to superseded {style.stroke-dash: 5; style.stroke: "#dc2626"}
+
+classes: {
+  db: {style: {fill: "#eef2ff"; stroke: "#6366f1"}}
+}
